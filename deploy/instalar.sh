@@ -264,8 +264,11 @@ if [ -n "$ORG_SLUG" ] && ! como "cd '$DIR/backend' && '$UV' run python -m app.co
   fi
   : "${GESTOR_EMAIL:?informe GESTOR_EMAIL}"; : "${GESTOR_LOGIN:?informe GESTOR_LOGIN}"; : "${ORG_NOME:?informe ORG_NOME}"
   SENHA_GESTOR="Fs$(openssl rand -hex 7)9"   # letras e números (política da senha); o Gestor troca no primeiro acesso
-  ARQ_SENHA="$(mktemp)"; chmod 600 "$ARQ_SENHA"; chown "$USUARIO_DEPLOY" "$ARQ_SENHA"
+  # grava ANTES de passar o dono: com fs.protected_regular (padrão no Ubuntu) o root não abre para escrita, em /tmp,
+  # um arquivo de outro usuário
+  ARQ_SENHA="$(mktemp)"; chmod 600 "$ARQ_SENHA"
   printf '%s\n' "$SENHA_GESTOR" > "$ARQ_SENHA"
+  chown "$USUARIO_DEPLOY" "$ARQ_SENHA"
   # a senha vai pela entrada padrão (nunca na linha de comando, que aparece no `ps`)
   como "cd '$DIR/backend' && '$UV' run python -m app.controle.cli nova-organizacao --slug '$ORG_SLUG' \
     --nome '$ORG_NOME' --admin-email '$GESTOR_EMAIL' --admin-login '$GESTOR_LOGIN' --admin-nome '$GESTOR_NOME' \
