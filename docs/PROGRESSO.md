@@ -21,3 +21,13 @@
 ## Registro
 - 10/11/2026 — Projeto criado. Protótipo salvo em `docs/prototipo/`. Especificação em `docs/ESPECIFICACAO.md`.
 - 10/11/2026 — Fundação backend: core do MayaFit portado (auth, perfis, permissões, auditoria, IA, um banco por organização), todos os modelos + migração 0001, domínio com testes, seed do protótipo. Detalhes em `docs/progresso-fundacao.md`.
+- 10/11/2026 — **Produção no ar em https://flicsales.com.br** (VPS compartilhada, /home/deploy/flicsales-os/prod, serviços
+  flicsales-os-*@prod, API 10071 / web 10072, acesso de conferência http://2.25.130.240:10076). Organização `matriz`
+  ("FlicSales"; `flicsales` é slug reservado), Gestor `jefferson`. Bancos flicsalesos_prod, flicsalesos_controle_prod,
+  flicsalesos_prod_matriz. Troca de domínio feita à mão (não pelo trocar-dominio.sh): site nginx novo
+  `flicsales-os-dominio` com flicsales.com.br + www (certificado existente); o site antigo `flicsales` ficou com
+  app.flicsales.com.br, admin.flicsales.com.br e o IP. Backups: /home/deploy/backups/troca-flicsales-20261110-1522
+  (banco flicsales + conf) e troca-flicsales-20261110-2014-nginx (conf antes da troca). Voltar: restaurar a conf do
+  backup, remover o link sites-enabled/flicsales-os-dominio, nginx -t, reload.
+  Pendências: COOKIE_SECURE=false no front de prod (herdado do modo IP; ligar e fechar a porta 10076 quando não precisar
+  mais da conferência por IP); hml ainda não instalado; migração dos clientes do flicsales antigo.
