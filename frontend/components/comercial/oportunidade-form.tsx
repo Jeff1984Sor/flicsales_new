@@ -90,6 +90,11 @@ function Corpo({
     e.preventDefault();
     const f = lerForm(e.currentTarget);
     const empresa = empresaDoTexto(f.empresa ?? "", opcoes?.empresas ?? []);
+    // na edição a empresa é obrigatória (na criação continua opcional, como no protótipo)
+    if (o && !empresa.empresa_id && !empresa.empresa_nome) {
+      notificar("Informe a empresa da oportunidade.");
+      return;
+    }
     const corpo: OportunidadeEntrada = {
       titulo: f.titulo.trim(),
       funil_id: Number(f.funil_id || funil),
@@ -111,7 +116,6 @@ function Corpo({
       corpo.valor_recorrente_mensal = nulo(f.valor_recorrente_mensal) ?? "0";
     }
     if (o && aberta && f.etapa_id) corpo.etapa_id = Number(f.etapa_id);
-    if (o && !empresa.empresa_id && !empresa.empresa_nome) corpo.empresa_id = null;
     salvar.mutate(corpo);
   }
 
@@ -140,8 +144,8 @@ function Corpo({
           </NativeSelect>
         </CampoDrawer>
       )}
-      <CampoDrawer rotulo="Empresa · selecionar ou criar" dica="Nome novo cria a empresa no cadastro compartilhado.">
-        <CampoEmpresa empresas={opcoes?.empresas} defaultValue={o?.empresa_nome} />
+      <CampoDrawer rotulo="Empresa · selecionar ou criar" dica="Nome novo cria a empresa no cadastro compartilhado." obrigatorio={!!o}>
+        <CampoEmpresa empresas={opcoes?.empresas} defaultValue={o?.empresa_nome} required={!!o} />
       </CampoDrawer>
       <CampoDrawer rotulo="Responsável" obrigatorio>
         <NativeSelect name="responsavel_id" defaultValue={String(o?.responsavel_id ?? usuario?.id ?? "")} disabled={restrito}>

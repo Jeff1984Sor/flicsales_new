@@ -10,11 +10,12 @@
  *  - A aba de módulo lembra a última tela visitada naquele módulo (localStorage)
  *  - Bloqueio leve por permissão: rota com `recurso` sem "<recurso>.ver" mostra <SemAcesso/> (o servidor já recusa os dados)
  */
+import { useQueryClient } from "@tanstack/react-query";
 import { CircleUserRound, KeyRound, LogOut, Monitor, Moon, Settings, Sun } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   DropdownMenu,
@@ -25,9 +26,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { EH_HML, EH_PROD } from "@/lib/env";
 import { hojeExtenso } from "@/lib/format";
+import type { BuscaGlobal as BuscaGlobalResultado } from "@/lib/tipos-nucleo";
 import { cn } from "@/lib/utils";
 
 import { AssistenteDrawer } from "./assistente-drawer";
@@ -115,6 +118,30 @@ function AbasModulo({ modulos, atual }: { modulos: Modulo[]; atual: ModuloId }) 
 
 function BuscaGlobal() {
   const [q, setQ] = useState("");
+  const router = useRouter();
+  const qc = useQueryClient();
+
+  // Enter: exatamente uma oportunidade correspondente abre direto; senão, a paleta com o termo
+  const buscar = async (termo: string) => {
+    if (termo.length >= 2) {
+      try {
+        const r = await qc.fetchQuery({
+          queryKey: ["nucleo", "busca", termo],
+          queryFn: () => api.get<BuscaGlobalResultado>("/nucleo/busca", { q: termo }),
+          staleTime: 20_000,
+        });
+        const ops = r.grupos.find((g) => g.tipo === "oportunidades")?.itens ?? [];
+        if (ops.length === 1) {
+          router.push(`/comercial/oportunidades?id=${ops[0].id}`);
+          return;
+        }
+      } catch {
+        /* sem resultado direto: segue para a paleta */
+      }
+    }
+    abrirPaleta(termo);
+  };
+
   return (
     <input
       type="search"
@@ -124,7 +151,7 @@ function BuscaGlobal() {
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           e.preventDefault();
-          abrirPaleta(q.trim());
+          void buscar(q.trim());
           setQ("");
           e.currentTarget.blur();
         }
@@ -285,12 +312,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [pathname, moduloId, rota]);
 
+  // Alt+N sem tela que o registre: padrão do módulo (nova oportunidade no Comercial; novo título a receber no resto)
+  const router = useRouter();
+  const { pode } = useAuth();
+  const padraoNovo = useRef<() => void>(() => {});
+  useEffect(() => {
+    padraoNovo.current = () => {
+      if (moduloId === "comercial") {
+        if (pode("comercial.oportunidades.editar")) router.push("/comercial/oportunidades?novo=1");
+      } else if (pode("financeiro.titulos.editar")) {
+        router.push("/financeiro/receber?novo=1");
+      }
+    };
+  });
+
   // atalhos globais do protótipo
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyN") {
         e.preventDefault();
-        dispararNovo();
+        if (!dispararNovo()) padraoNovo.current();
         return;
       }
       if (digitando(e.target)) return;

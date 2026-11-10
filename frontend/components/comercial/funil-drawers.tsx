@@ -128,6 +128,10 @@ function EtapasCorpo({ funil, onFechar }: { funil: Funil; onFechar: () => void }
       notificar(MSG_ETAPAS);
       return;
     }
+    if (etapas.some((e) => !(Number.isInteger(Number(e.limite_dias)) && Number(e.limite_dias) >= 1) || e.limite_dias === "")) {
+      notificar("Informe o limite de permanência (dias) de cada etapa.");
+      return;
+    }
     salvar.mutate();
   }
 
@@ -146,8 +150,8 @@ function EtapasCorpo({ funil, onFechar }: { funil: Funil; onFechar: () => void }
           <CampoDrawer rotulo="Probabilidade configurada (%)" obrigatorio>
             <Input type="number" min={0} max={100} required value={e.probabilidade} onChange={(x) => alterar(i, "probabilidade", x.target.value)} />
           </CampoDrawer>
-          <CampoDrawer rotulo="Limite de permanência (dias)">
-            <Input type="number" min={1} value={e.limite_dias} onChange={(x) => alterar(i, "limite_dias", x.target.value)} />
+          <CampoDrawer rotulo="Limite de permanência (dias)" obrigatorio>
+            <Input type="number" min={1} required value={e.limite_dias} onChange={(x) => alterar(i, "limite_dias", x.target.value)} />
           </CampoDrawer>
           <CampoDrawer rotulo="Critérios e campos exigidos">
             <Input value={e.criterios} onChange={(x) => alterar(i, "criterios", x.target.value)} />

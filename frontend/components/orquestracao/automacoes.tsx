@@ -7,6 +7,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FlaskConical, History, Workflow } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { DataTable, type Coluna } from "@/components/flic/data-table";
@@ -121,8 +122,10 @@ function deAutomacao(a: Automacao): AutomacaoIn {
 export function AutomacoesTela() {
   const { pode } = useAuth();
   const qc = useQueryClient();
+  const params = useSearchParams();
   const areasVisiveis = AREAS.filter((a) => pode(a.permissao));
-  const [area, setArea] = useState<AreaAutomacao>(areasVisiveis[0]?.id ?? "comercial");
+  const pedida = areasVisiveis.find((a) => a.id === params.get("area"))?.id;
+  const [area, setArea] = useState<AreaAutomacao>(pedida ?? areasVisiveis[0]?.id ?? "comercial");
   const [aba, setAba] = useState<Aba>("Modelos");
   const [editando, setEditando] = useState<{ id: number | null; dados: AutomacaoIn } | null>(null);
   const [teste, setTeste] = useState<{ automacao: Automacao; resultado: TesteAutomacao } | null>(null);

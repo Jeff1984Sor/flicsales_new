@@ -17,8 +17,8 @@ export function perguntarAoAssistente(escopo: EscopoIA, pergunta: string, regist
   window.dispatchEvent(new CustomEvent<DetalheIAComPergunta>(EVENTO_IA, { detail: { escopo, registro, pergunta } }));
 }
 
-/** Rota da tela onde o registro citado por uma evidência/ação é aberto. */
-export function rotaDoRegistro(tipo: string | undefined): string | null {
+/** Rota da tela onde o registro citado por uma evidência/ação é aberto (título: pela direção, a receber por padrão). */
+export function rotaDoRegistro(tipo: string | undefined, direcao?: string | null): string | null {
   switch (tipo) {
     case "oportunidade":
       return "/comercial/oportunidades";
@@ -27,7 +27,7 @@ export function rotaDoRegistro(tipo: string | undefined): string | null {
     case "comunicacao":
       return "/comercial/comunicacoes";
     case "titulo":
-      return "/financeiro/receber";
+      return direcao === "pagar" ? "/financeiro/pagar" : "/financeiro/receber";
     case "empresa":
       return "/nucleo/cadastros";
     default:

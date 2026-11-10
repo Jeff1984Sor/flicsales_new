@@ -51,7 +51,7 @@ export default function FinanceiroHojePage() {
     ["Ver caixa", "/financeiro/caixa", "financeiro.caixa"],
     ["Baixas e estornos", "/financeiro/baixas", "financeiro.baixas"],
     ["Cobranças e acordos", "/financeiro/cobrancas", "financeiro.cobrancas"],
-    ["Configurar automações", "/nucleo/automacoes", "orquestracao.automacoes"],
+    ["Configurar automações", "/nucleo/automacoes?area=financeiro", "orquestracao.automacoes"],
   ];
 
   const leitura = h?.leitura;

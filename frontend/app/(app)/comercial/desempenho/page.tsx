@@ -5,12 +5,13 @@ import { Gauge } from "lucide-react";
 import { useState } from "react";
 
 import { AtividadeForm } from "@/components/comercial/atividade-form";
-import { pct } from "@/components/comercial/dados";
+import { pct, useOpcoes } from "@/components/comercial/dados";
 import { DataTable, type Coluna } from "@/components/flic/data-table";
 import { Dinheiro } from "@/components/flic/dinheiro";
 import { Drawer } from "@/components/flic/drawer";
 import { Etiqueta } from "@/components/flic/etiqueta";
 import { Fonte } from "@/components/flic/fonte";
+import { NativeSelect } from "@/components/flic/form";
 import { KpiCard, Metricas } from "@/components/flic/kpi-card";
 import { PageHeader } from "@/components/flic/page-header";
 import { Painel } from "@/components/flic/painel";
@@ -27,18 +28,23 @@ export default function DesempenhoPage() {
   const { pode } = useAuth();
   const [inicio, setInicio] = useState(inicioDoMes);
   const [fim, setFim] = useState(hojeISO);
+  const [funilId, setFunilId] = useState("");
+  const { data: opcoes } = useOpcoes();
+  const funis = opcoes?.funis ?? [];
+  const carteira = funis.find((f) => String(f.id) === funilId)?.nome ?? "Todas as carteiras";
+  const funil_id = funilId ? Number(funilId) : undefined;
   const [sel, setSel] = useState<VendedorDesempenho | null>(null);
   const [acao, setAcao] = useState<string | null>(null);
 
   const periodoOk = !!inicio && !!fim && fim >= inicio;
   const { data: d, isPending } = useQuery({
-    queryKey: ["comercial", "desempenho", inicio, fim],
-    queryFn: () => api.get<Desempenho>("/comercial/desempenho", { inicio, fim }),
+    queryKey: ["comercial", "desempenho", inicio, fim, funil_id],
+    queryFn: () => api.get<Desempenho>("/comercial/desempenho", { inicio, fim, funil_id }),
     enabled: periodoOk,
   });
   const { data: ev, isPending: carregandoEv } = useQuery({
-    queryKey: ["comercial", "desempenho", "evidencias", sel?.usuario_id, inicio, fim],
-    queryFn: () => api.get<Evidencias>("/comercial/desempenho/evidencias", { usuario_id: sel?.usuario_id, inicio, fim }),
+    queryKey: ["comercial", "desempenho", "evidencias", sel?.usuario_id, inicio, fim, funil_id],
+    queryFn: () => api.get<Evidencias>("/comercial/desempenho/evidencias", { usuario_id: sel?.usuario_id, inicio, fim, funil_id }),
     enabled: !!sel && periodoOk,
   });
 
@@ -71,8 +77,20 @@ export default function DesempenhoPage() {
           Fim
           <Input type="date" value={fim} onChange={(e) => setFim(e.target.value)} className="mt-1 w-auto" />
         </label>
+        <label className="text-xs">
+          Carteira
+          <NativeSelect value={funilId} onChange={(e) => setFunilId(e.target.value)} className="mt-1 w-auto">
+            <option value="">Todas as carteiras</option>
+            {funis.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.nome}
+              </option>
+            ))}
+          </NativeSelect>
+        </label>
         {!periodoOk && <Etiqueta tom="amber">A data final deve ser igual ou posterior ao início</Etiqueta>}
         {d && <Etiqueta>{`${d.encerradas} oportunidades encerradas`}</Etiqueta>}
+        <Etiqueta>{carteira}</Etiqueta>
       </div>
       <Metricas>
         <KpiCard rotulo="Conversão" valor={pct(d?.conversao.valor)} detalhe={d?.conversao.detalhe} formula={d?.conversao.formula} carregando={isPending && periodoOk} />

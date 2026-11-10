@@ -186,3 +186,13 @@ export interface UsuarioOpcao {
   nome: string;
   login: string | null;
 }
+
+/** GET /orquestracao/consumo — Plano e consumo (uso do mês da organização). */
+export interface ConsumoOrganizacao {
+  competencia: string; // "AAAA-MM"
+  usuarios_ativos: number;
+  perguntas_ia_mes: number;
+  perguntas_ia_com_provedor_mes: number;
+  automacoes_ativas: number;
+  execucoes_mes: number;
+}

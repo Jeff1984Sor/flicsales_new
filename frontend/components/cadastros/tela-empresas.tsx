@@ -74,6 +74,8 @@ export function TelaEmpresas({ embutida, papelPadrao = "", idInicial = null }: {
         </div>
       ),
     },
+    // Cadastros mestres (embutida): coluna Origem, como no protótipo
+    ...(embutida ? [{ id: "origem", titulo: "Origem", celula: (e: Empresa) => e.origem || "—" }] : []),
     { id: "opp", titulo: "Oportunidades", alinhar: "direita", celula: (e) => <span className="num">{e.oportunidades}</span> },
     {
       id: "receber",
@@ -129,6 +131,7 @@ export function TelaEmpresas({ embutida, papelPadrao = "", idInicial = null }: {
             { titulo: "CNPJ / CPF", valor: (e) => e.documento },
             { titulo: "Segmento", valor: (e) => e.segmento },
             { titulo: "Papéis", valor: (e) => e.papeis.map((p) => ROTULO_PAPEL[p]).join(" / ") },
+            { titulo: "Origem", valor: (e) => e.origem },
             { titulo: "Responsável", valor: (e) => e.responsavel_nome },
             { titulo: "E-mail financeiro", valor: (e) => e.email_financeiro },
             { titulo: "Telefone", valor: (e) => e.telefone },
