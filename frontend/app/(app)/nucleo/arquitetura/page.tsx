@@ -1,6 +1,5 @@
-import { EmConstrucao } from "@/components/flic/em-construcao";
+import { TelaArquitetura } from "@/components/cadastros/tela-arquitetura";
 
-// Provisória (fundação). O módulo dono substitui esta página pela tela real do protótipo.
-export default function NucleoArquiteturaPage() {
-  return <EmConstrucao titulo="Arquitetura e escopo" descricao="Parecer de CTO · uma base viável para construir e evoluir." />;
+export default function ArquiteturaPage() {
+  return <TelaArquitetura />;
 }

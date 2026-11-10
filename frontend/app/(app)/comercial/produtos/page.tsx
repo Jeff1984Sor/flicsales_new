@@ -1,6 +1,18 @@
-import { EmConstrucao } from "@/components/flic/em-construcao";
+"use client";
 
-// Provisória (fundação). O módulo dono substitui esta página pela tela real do protótipo.
+import { Suspense } from "react";
+
+import { TelaProdutos, useIdDaUrl } from "@/components/cadastros";
+
+function Tela() {
+  const id = useIdDaUrl();
+  return <TelaProdutos key={id ?? 0} idInicial={id} />;
+}
+
 export default function ComercialProdutosPage() {
-  return <EmConstrucao titulo="Produtos e serviços" descricao="Cadastros e comandos da operação." />;
+  return (
+    <Suspense>
+      <Tela />
+    </Suspense>
+  );
 }

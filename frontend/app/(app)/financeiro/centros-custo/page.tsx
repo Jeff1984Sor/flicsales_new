@@ -1,6 +1,18 @@
-import { EmConstrucao } from "@/components/flic/em-construcao";
+"use client";
 
-// Provisória (fundação). O módulo dono substitui esta página pela tela real do protótipo.
-export default function FinanceiroCentrosCustoPage() {
-  return <EmConstrucao titulo="Centros de custo" descricao="Cadastros e comandos da operação." />;
+import { Suspense } from "react";
+
+import { TelaCentrosCusto, useIdDaUrl } from "@/components/cadastros";
+
+function Tela() {
+  const id = useIdDaUrl();
+  return <TelaCentrosCusto key={id ?? 0} idInicial={id} />;
+}
+
+export default function CentrosCustoPage() {
+  return (
+    <Suspense>
+      <Tela />
+    </Suspense>
+  );
 }

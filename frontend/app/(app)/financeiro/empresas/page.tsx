@@ -1,6 +1,18 @@
-import { EmConstrucao } from "@/components/flic/em-construcao";
+"use client";
 
-// Provisória (fundação). O módulo dono substitui esta página pela tela real do protótipo.
+import { Suspense } from "react";
+
+import { TelaEmpresas, useIdDaUrl } from "@/components/cadastros";
+
+function Tela() {
+  const id = useIdDaUrl();
+  return <TelaEmpresas key={id ?? 0} idInicial={id} />;
+}
+
 export default function FinanceiroEmpresasPage() {
-  return <EmConstrucao titulo="Empresas e clientes" descricao="Base compartilhada. Comercial e Financeiro reutilizam os mesmos registros." />;
+  return (
+    <Suspense>
+      <Tela />
+    </Suspense>
+  );
 }
