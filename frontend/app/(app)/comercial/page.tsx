@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { DrawerEmpresa } from "@/components/cadastros";
 import { AtividadeForm } from "@/components/comercial/atividade-form";
 import { CHAVE, hora, useInvalidarComercial } from "@/components/comercial/dados";
 import { NovoFunilDrawer } from "@/components/comercial/funil-drawers";
@@ -50,6 +51,7 @@ export default function ComercialHojePage() {
   const [novaAtividade, setNovaAtividade] = useState(false);
   const [novaProposta, setNovaProposta] = useState(false);
   const [novoFunil, setNovoFunil] = useState(false);
+  const [novaEmpresa, setNovaEmpresa] = useState(false);
   const [aberta, setAberta] = useState<number | null>(null);
   const [atividade, setAtividade] = useState<Atividade | null>(null);
   const podeOp = pode("comercial.oportunidades.editar");
@@ -77,7 +79,7 @@ export default function ComercialHojePage() {
       const a = [...(h?.atencao ?? []), ...(h?.agenda ?? [])].find((x) => x.id === reg.id);
       if (a) setAtividade(a);
       else router.push("/comercial/atividades");
-    } else if (reg.tipo === "titulo") router.push("/financeiro/receber");
+    } else if (reg.tipo === "titulo") router.push(`/financeiro/receber?id=${reg.id}`);
     else abrirAssistente("Este módulo");
   }
 
@@ -91,7 +93,7 @@ export default function ComercialHojePage() {
           ...(podeOp ? [{ rotulo: "+ Oportunidade", onClick: () => setNovaOp(true) }] : []),
           ...(pode("comercial.atividades.editar") ? [{ rotulo: "+ Atividade", onClick: () => setNovaAtividade(true) }] : []),
           ...(pode("comercial.propostas.editar") ? [{ rotulo: "+ Proposta", onClick: () => setNovaProposta(true) }] : []),
-          ...(pode("nucleo.cadastros.editar") ? [{ rotulo: "+ Empresa", href: "/comercial/empresas" }] : []),
+          ...(pode("nucleo.cadastros.editar") ? [{ rotulo: "+ Empresa", onClick: () => setNovaEmpresa(true) }] : []),
           ...(podeOp ? [{ rotulo: "+ Criar funil", onClick: () => setNovoFunil(true) }] : []),
         ]}
       />
@@ -236,6 +238,7 @@ export default function ComercialHojePage() {
       <AtividadeForm aberto={!!atividade} atividade={atividade} onFechar={() => setAtividade(null)} />
       <PropostaForm aberto={novaProposta} onFechar={() => setNovaProposta(false)} />
       <NovoFunilDrawer aberto={novoFunil} onFechar={() => setNovoFunil(false)} aoCriar={() => router.push("/comercial/oportunidades")} />
+      <DrawerEmpresa aberto={novaEmpresa} onFechar={() => setNovaEmpresa(false)} empresaId={null} onSalva={() => setNovaEmpresa(false)} />
       <OportunidadeDrawer id={aberta} onFechar={() => setAberta(null)} />
     </>
   );

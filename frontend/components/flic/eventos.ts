@@ -8,7 +8,8 @@
  *  - `useAtalhoNovo(fn)`                     a tela decide o que Alt+N cria (oportunidade, título…). O shell dispara
  *                                            o evento `flic:novo`; só a tela montada reage.
  *
- * Atalhos (shell.tsx): Alt+N → `flic:novo` · `/` → foca a busca do topo · Esc → fecha o drawer aberto.
+ * Atalhos (shell.tsx): Alt+N → `flic:novo` (se nenhuma tela registrou, o padrão do módulo: nova oportunidade no
+ * Comercial, novo título a receber no Financeiro/Núcleo) · `/` → foca a busca do topo · Esc → fecha o drawer aberto.
  */
 import { useEffect, useRef } from "react";
 
@@ -31,8 +32,14 @@ export function abrirPaleta(termo = "") {
   window.dispatchEvent(new CustomEvent<string>(EVENTO_PALETA, { detail: termo }));
 }
 
-export function dispararNovo() {
+/** Quantas telas montadas registraram `useAtalhoNovo` (0 = o shell aplica o padrão do módulo). */
+let telasComAtalho = 0;
+
+/** Dispara Alt+N para a tela montada. Devolve false se nenhuma tela registrou o atalho. */
+export function dispararNovo(): boolean {
+  if (telasComAtalho === 0) return false;
   window.dispatchEvent(new Event(EVENTO_NOVO));
+  return true;
 }
 
 /** Registra o que Alt+N faz nesta tela (ex.: abrir o drawer "Nova oportunidade"). */
@@ -43,8 +50,12 @@ export function useAtalhoNovo(fn: () => void) {
   });
   useEffect(() => {
     const h = () => ref.current();
+    telasComAtalho += 1;
     window.addEventListener(EVENTO_NOVO, h);
-    return () => window.removeEventListener(EVENTO_NOVO, h);
+    return () => {
+      telasComAtalho -= 1;
+      window.removeEventListener(EVENTO_NOVO, h);
+    };
   }, []);
 }
 

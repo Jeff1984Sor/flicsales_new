@@ -1,7 +1,7 @@
 "use client";
 
 /** Financeiro › Aprovações (protótipo `approvals/approvePayable`): contas a pagar pendentes; Conferir e Aprovar (alçada). */
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BadgeCheck } from "lucide-react";
 import { useState } from "react";
 
@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { data } from "@/lib/format";
+import type { Proposta } from "@/lib/tipos-comercial";
 import type { Titulo } from "@/lib/tipos-financeiro";
 
 type Situacao = "pendente" | "aprovado" | "todos";
@@ -107,11 +108,87 @@ export default function FinanceiroAprovacoesPage() {
           vazio={{ icone: BadgeCheck, titulo: situacao === "pendente" ? "Nenhum pagamento aguardando aprovação." : "Nada por aqui.", descricao: "Contas a pagar só recebem baixa depois de aprovadas." }}
         />
       </Painel>
+      <DescontosEmAprovacao />
       <Limite>
         Alçada por perfil: só quem tem permissão de aprovar (Gestor) registra a aprovação, com autor e data na auditoria.
-        {!podeAprovar && " Seu perfil confere, mas não aprova."} Descontos comerciais em aprovação aparecem em Comercial › Propostas.
+        {!podeAprovar && " Seu perfil confere, mas não aprova."}
       </Limite>
       <DetalheTitulo id={sel} onFechar={() => setSel(null)} />
     </>
+  );
+}
+
+/** Propostas com desconto aguardando aprovação interna (alçada do Financeiro) antes do envio ao cliente. */
+function DescontosEmAprovacao() {
+  const { pode } = useAuth();
+  const qc = useQueryClient();
+  const podeVer = pode("comercial.propostas.ver");
+  // aprovar = PATCH de status na proposta: o servidor exige a alçada do Financeiro e a edição de propostas
+  const podeAprovar = pode("financeiro.aprovacoes.editar") && pode("comercial.propostas.editar");
+  const lista = useQuery({
+    queryKey: ["comercial", "propostas", "em_aprovacao"],
+    queryFn: () => api.get<Proposta[]>("/comercial/propostas", { status: "em_aprovacao" }),
+    enabled: podeVer,
+  });
+  const aprovar = useMutation({
+    mutationFn: (p: Proposta) => api.patch<Proposta>(`/comercial/propostas/${p.id}`, { status: "aprovada_internamente" }),
+    onSuccess: (p) => {
+      void qc.invalidateQueries({ queryKey: ["comercial"] });
+      notificar.sucesso(`Desconto aprovado: ${p.titulo} v${p.versao}`);
+    },
+  });
+
+  const colunas: Coluna<Proposta>[] = [
+    {
+      id: "proposta",
+      titulo: "Proposta",
+      celula: (p) => (
+        <>
+          <strong>{`${p.titulo} v${p.versao}`}</strong>
+          <p className="text-muted">{[p.empresa_nome, p.oportunidade_titulo].filter(Boolean).join(" · ")}</p>
+        </>
+      ),
+    },
+    {
+      id: "desconto",
+      titulo: "Desconto",
+      alinhar: "direita",
+      celula: (p) => <span className="num">{`${Number(p.desconto_pct).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`}</span>,
+    },
+    { id: "justificativa", titulo: "Justificativa", celula: (p) => p.justificativa_desconto ?? "—" },
+    { id: "total", titulo: "Total", alinhar: "direita", celula: (p) => <Dinheiro valor={p.total} /> },
+    {
+      id: "cmd",
+      titulo: "Comandos",
+      alinhar: "direita",
+      celula: (p) =>
+        podeAprovar ? (
+          <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+            <Button size="sm" onClick={() => aprovar.mutate(p)} disabled={aprovar.isPending}>
+              Aprovar
+            </Button>
+          </div>
+        ) : (
+          <span className="text-xs text-muted">Somente conferência</span>
+        ),
+    },
+  ];
+
+  return (
+    <Painel titulo="Descontos de propostas em aprovação" semPadding className="mt-5">
+      {podeVer ? (
+        <DataTable
+          semCartao
+          className="px-2 md:px-4"
+          colunas={colunas}
+          linhas={lista.data}
+          chave={(p) => p.id}
+          carregando={lista.isPending}
+          vazio={{ icone: BadgeCheck, titulo: "Nenhum desconto aguardando aprovação.", descricao: "Proposta com desconto só é enviada depois da aprovação interna." }}
+        />
+      ) : (
+        <p className="px-6 py-4 text-sm text-muted">Seu perfil não acessa as propostas comerciais. Peça ao gestor para liberar a leitura de propostas.</p>
+      )}
+    </Painel>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Loader2, MessagesSquare } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { AtividadeForm } from "@/components/comercial/atividade-form";
 import { lerForm, nulo, numeroOuNulo, useInvalidarComercial, useOpcoes } from "@/components/comercial/dados";
@@ -56,6 +56,7 @@ export default function ComunicacoesPage() {
   const [canal, setCanal] = useState("todos");
   const [importar, setImportar] = useState(false);
   const [sel, setSel] = useState<Comunicacao | null>(null);
+  const [autoAnalisar, setAutoAnalisar] = useState(false);
   useAtalhoNovo(() => editar && setImportar(true));
 
   const { data: lista, isPending } = useQuery({
@@ -107,7 +108,14 @@ export default function ComunicacoesPage() {
                     {c.oportunidade_titulo ? ` · ${c.oportunidade_titulo}` : ""}
                   </p>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setSel(c)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setAutoAnalisar(false);
+                    setSel(c);
+                  }}
+                >
                   Analisar
                 </Button>
               </div>
@@ -122,6 +130,21 @@ export default function ComunicacoesPage() {
             <p>Canais desconectados: nenhuma conta pessoal é acessada. O texto importado é tratado como dado, nunca como instrução.</p>
             <p>Sem transcrição de áudio nem análise de emoções.</p>
           </Fonte>
+          <Button
+            variant="outline"
+            className="mt-4"
+            onClick={() => {
+              const primeira = (lista ?? [])[0];
+              if (!primeira) {
+                notificar("Nenhuma conversa vinculada para analisar. Importe notas, e-mails ou mensagens autorizadas.");
+                return;
+              }
+              setAutoAnalisar(true);
+              setSel(primeira);
+            }}
+          >
+            Analisar exemplo
+          </Button>
         </Painel>
       </GradePaineis>
 
@@ -129,7 +152,7 @@ export default function ComunicacoesPage() {
         {importar && <FormImportar onFechar={() => setImportar(false)} aoImportar={setSel} />}
       </Drawer>
       <Drawer aberto={!!sel} onFechar={() => setSel(null)} titulo={sel ? `Análise de ${rotuloCanal(sel.canal)}` : undefined} descricao={sel?.titulo ?? undefined}>
-        {sel && <PainelAnalise key={sel.id} c={sel} editar={editar} />}
+        {sel && <PainelAnalise key={sel.id} c={sel} editar={editar} autoAnalisar={autoAnalisar} />}
       </Drawer>
     </>
   );
@@ -219,7 +242,7 @@ function FormImportar({ onFechar, aoImportar }: { onFechar: () => void; aoImport
   );
 }
 
-function PainelAnalise({ c, editar }: { c: Comunicacao; editar: boolean }) {
+function PainelAnalise({ c, editar, autoAnalisar = false }: { c: Comunicacao; editar: boolean; autoAnalisar?: boolean }) {
   const invalidar = useInvalidarComercial();
   const [analise, setAnalise] = useState<AnaliseComunicacao | null>(c.analise);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -246,6 +269,15 @@ function PainelAnalise({ c, editar }: { c: Comunicacao; editar: boolean }) {
     },
     onError: () => setAviso(AVISO_IA),
   });
+  // "Analisar exemplo": analisa a comunicação assim que o drawer abre (se ainda não tiver análise)
+  const disparou = useRef(false);
+  const { mutate: analisarAgora } = analisar;
+  useEffect(() => {
+    if (!autoAnalisar || !editar || c.analise || disparou.current) return;
+    disparou.current = true;
+    analisarAgora();
+  }, [autoAnalisar, editar, c.analise, analisarAgora]);
+
   const responder = useMutation({
     mutationFn: () => api.post<RascunhoResposta>(`/comercial/comunicacoes/${c.id}/resposta`),
     onSuccess: setRascunho,

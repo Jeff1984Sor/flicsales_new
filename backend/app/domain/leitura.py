@@ -85,7 +85,8 @@ def _achados(hoje: date, titulos: list[TituloResumo], oportunidades: list[Oportu
             out.append(Achado(1, dinheiro(t.saldo), t.id, "titulo",
                               f"{t.empresa} · {t.descricao}: {formatar_brl(t.saldo)} vencido há {dias} dia(s)",
                               f"Financeiro › A receber › título #{t.id}",
-                              _acao("abrir_registro", f"Abrir cobrança de {t.empresa}", "titulo", t.id)))
+                              _acao("abrir_registro", f"Abrir cobrança de {t.empresa}", "titulo", t.id,
+                                    direcao=t.direcao)))
     abertas = [o for o in oportunidades if o.resultado == "aberta"]
     for o in abertas:
         if not (o.proxima_acao or "").strip():

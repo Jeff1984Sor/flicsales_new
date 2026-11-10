@@ -27,11 +27,12 @@ function texto(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
-function registroDe(payload: Record<string, unknown>): { tipo?: string; id?: number } {
+function registroDe(payload: Record<string, unknown>): { tipo?: string; id?: number; direcao?: string } {
   const r = payload.registro;
   if (r && typeof r === "object" && "tipo" in r && "id" in r) {
-    const x = r as { tipo: unknown; id: unknown };
-    return { tipo: String(x.tipo), id: Number(x.id) };
+    const x = r as { tipo: unknown; id: unknown; direcao?: unknown };
+    const direcao = x.direcao ?? payload.direcao;
+    return { tipo: String(x.tipo), id: Number(x.id), direcao: typeof direcao === "string" ? direcao : undefined };
   }
   return {};
 }
@@ -60,7 +61,7 @@ export function AcaoSugerida({ acao }: { acao: AcaoSugeridaIA }) {
 
   if (acao.tipo === "abrir_registro") {
     const reg = registroDe(acao.payload);
-    const rota = rotaDoRegistro(reg.tipo);
+    const rota = rotaDoRegistro(reg.tipo, reg.direcao);
     if (!rota) return null;
     return (
       <Link className={buttonVariants({ variant: "outline", size: "sm" })} href={reg.id ? `${rota}?id=${reg.id}` : rota}>

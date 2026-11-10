@@ -2,7 +2,8 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 
 import { CHAVE, useInvalidarComercial, useOpcoes, useUsuarios } from "@/components/comercial/dados";
 import { EtapasDrawer, NovoFunilDrawer } from "@/components/comercial/funil-drawers";
@@ -25,6 +26,14 @@ import { data } from "@/lib/format";
 import type { Oportunidade } from "@/lib/tipos-comercial";
 
 export default function OportunidadesPage() {
+  return (
+    <Suspense>
+      <TelaOportunidades />
+    </Suspense>
+  );
+}
+
+function TelaOportunidades() {
   const { pode, usuario } = useAuth();
   const editar = pode("comercial.oportunidades.editar");
   const invalidar = useInvalidarComercial();
@@ -38,6 +47,21 @@ export default function OportunidadesPage() {
   const [etapasAberto, setEtapasAberto] = useState(false);
   const [aberta, setAberta] = useState<number | null>(null);
   useAtalhoNovo(() => editar && setNova(true));
+
+  // links vindos de outras telas: ?novo=1 (Alt+N do shell) / ?id=<id> (busca global, IA) / ?oportunidade=<id>
+  const params = useSearchParams();
+  const router = useRouter();
+  const pNovo = params.get("novo");
+  const pId = params.get("id") ?? params.get("oportunidade");
+  useEffect(() => {
+    if (!pNovo && !pId) return;
+    // abre o drawer pedido pelo link e limpa a URL (estado derivado de parâmetro externo)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (pNovo && editar) setNova(true);
+    const n = Number(pId);
+    if (pId && Number.isInteger(n) && n > 0) setAberta(n);
+    router.replace("/comercial/oportunidades", { scroll: false });
+  }, [pNovo, pId, editar, router]);
 
   const funis = opcoes?.funis ?? [];
   const funil = funis.find((f) => f.id === funilEscolhido) ?? funis[0] ?? null;

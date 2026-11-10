@@ -51,9 +51,9 @@ export function TelaTitulos({ direcao }: { direcao: Direcao }) {
   const [novo, setNovo] = useState(false);
   useAtalhoNovo(() => setNovo(true));
 
-  // links vindos de outras telas: ?novo=1 / ?titulo=<id>
+  // links vindos de outras telas: ?novo=1 / ?id=<id> (busca global, IA) / ?titulo=<id> (compatibilidade)
   const pNovo = params.get("novo");
-  const pTitulo = params.get("titulo");
+  const pTitulo = params.get("id") ?? params.get("titulo");
   useEffect(() => {
     if (!pNovo && !pTitulo) return;
     // abre o drawer pedido pelo link e limpa a URL (estado derivado de parâmetro externo)

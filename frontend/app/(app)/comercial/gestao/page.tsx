@@ -46,7 +46,7 @@ export default function GestaoComercialPage() {
           parâmetros configurados, não previsões de IA.
         </p>
       </Painel>
-      <Button render={<Link href="/nucleo/automacoes" />}>Configurar automações da área</Button>
+      <Button render={<Link href="/nucleo/automacoes?area=comercial" />}>Configurar automações da área</Button>
     </>
   );
 }

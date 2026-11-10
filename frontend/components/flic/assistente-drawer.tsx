@@ -10,7 +10,7 @@
  * Chama POST /bff/orquestracao/ia/perguntar (`PerguntaIA` → `RespostaIA`, formato único em lib/types.ts).
  * Sem IA configurada a resposta vem das regras (origem "regras") e o drawer diz isso, com link para Configurações › IA.
  */
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -25,6 +25,7 @@ import type { EscopoIA, PerguntaIA, RegistroContexto, RespostaIA } from "@/lib/t
 import { NativeSelect } from "./form";
 import { CampoDrawer, Drawer } from "./drawer";
 import { EVENTO_IA } from "./eventos";
+import { notificar } from "./toast";
 import { itemDaRota, moduloDaRota, moduloPorId } from "./nav";
 
 const ESCOPOS: EscopoIA[] = ["Este registro", "Este módulo", "Toda a FlicSales"];
@@ -62,10 +63,21 @@ export function AssistenteDrawer() {
   const [ultima, setUltima] = useState<Troca | null>(null);
   const [conversaId, setConversaId] = useState<number | null>(null);
   const pendente = useRef<{ texto: string; escopo: EscopoIA; registro: RegistroContexto | null } | null>(null);
+  // abriu sem pergunta: mostra a pergunta padrão do escopo com a leitura do momento do módulo (como no protótipo)
+  const [inicial, setInicial] = useState(false);
 
   const moduloId = moduloDaRota(pathname);
   const modulo = moduloPorId(moduloId);
   const tela = itemDaRota(pathname)?.label ?? "Início";
+
+  // mesma chave da tela Assistente: reaproveita o cache e não refaz a leitura a cada abertura
+  const leitura = useQuery({
+    queryKey: ["orquestracao", "leitura", moduloId],
+    queryFn: () => api.get<RespostaIA>("/orquestracao/leitura", { modulo: moduloId }),
+    enabled: aberto && inicial,
+    staleTime: 5 * 60_000,
+    meta: { silencioso: true },
+  });
 
   const perguntar = useMutation({
     meta: { silencioso: true },
@@ -99,6 +111,7 @@ export function AssistenteDrawer() {
       setConversaId(null);
       setPergunta("");
       setAberto(true);
+      setInicial(!d?.pergunta);
       if (d?.pergunta) pendente.current = { texto: d.pergunta, escopo: esc, registro: d.registro ?? null };
     };
     window.addEventListener(EVENTO_IA, h);
@@ -122,11 +135,18 @@ export function AssistenteDrawer() {
 
   const enviar = (e: React.FormEvent) => {
     e.preventDefault();
-    enviarTexto(pergunta.trim() || perguntaPadrao(escopo), escopo, registro, conversaId);
+    const texto = pergunta.trim();
+    if (!texto) {
+      notificar("Digite uma pergunta");
+      return;
+    }
+    setInicial(false);
+    enviarTexto(texto, escopo, registro, conversaId);
     setPergunta("");
   };
 
   const r = ultima?.resposta;
+  const mostrarInicial = inicial && !ultima && !perguntar.isPending;
 
   return (
     <Drawer aberto={aberto} onFechar={() => setAberto(false)} rotulo="ASSISTENTE DE ORQUESTRAÇÃO" titulo="Vamos conectar os pontos.">
@@ -151,6 +171,33 @@ export function AssistenteDrawer() {
           Contexto: {modulo.nome} / {tela}
           {escopo === "Este registro" && registro?.rotulo ? ` / ${registro.rotulo}` : ""}
         </p>
+
+        {mostrarInicial && (
+          <>
+            <div className="mt-[15px] rounded-[7px] bg-tint p-3 text-sm">{perguntaPadrao(escopo)}</div>
+            <div className="my-5 rounded-[9px] bg-subtle p-[18px] text-[13px]" aria-live="polite">
+              {leitura.isLoading ? (
+                <p className="flex items-center gap-2 text-muted">
+                  <Loader2 className="size-4 animate-spin" /> Consultando as fontes permitidas ao seu perfil…
+                </p>
+              ) : leitura.error ? (
+                <p className="text-muted">{mensagemErro(leitura.error)}</p>
+              ) : leitura.data ? (
+                <CorpoRespostaIA r={leitura.data} />
+              ) : null}
+            </div>
+            {leitura.data && (
+              <details className="border-t border-line py-[15px] text-xs">
+                <summary className="cursor-pointer font-semibold">Assistentes e fontes consultadas</summary>
+                <p className="pt-2.5 leading-relaxed">
+                  {leitura.data.ferramentas.length ? leitura.data.ferramentas.join(" · ") : "Nenhuma fonte disponível ao seu perfil neste escopo"}.{" "}
+                  Leitura do momento de {modulo.nome}. {leitura.data.origem === "ia" ? "Interpretada pela IA configurada." : "Calculada pelas regras do produto (sem IA)."}{" "}
+                  Fontes externas (agenda, e-mail, WhatsApp) só entram com conexão autorizada. Cada ferramenta respeita as permissões do seu perfil.
+                </p>
+              </details>
+            )}
+          </>
+        )}
 
         {(ultima || perguntar.isPending) && (
           <>
