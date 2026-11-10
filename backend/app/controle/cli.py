@@ -1,6 +1,6 @@
 """Terminal do banco de controle (um banco por organização). Portado do MayaFit (app/controle/cli.py).
 
-    python -m app.controle.cli ativar [--slug-principal flic-demo]   # cria o flicsales_controle e registra o principal
+    python -m app.controle.cli ativar [--slug-principal flic-demo]   # cria o banco de controle (BANCO_CONTROLE) e registra o principal
     python -m app.controle.cli migrar                                # controle + banco de cada organização
     python -m app.controle.cli nova-organizacao --slug acme --nome "Acme" --admin-email ana@acme.com --admin-login ana
     python -m app.controle.cli dominio --slug acme --host app.acme.com.br
@@ -29,11 +29,11 @@ def _ativar(slug_principal: str | None) -> None:
     if url.get_backend_name() == "sqlite":
         Path(url.database or "").parent.mkdir(parents=True, exist_ok=True)
     else:
-        service.criar_banco(tenancy.BANCO_CONTROLE)
+        service.criar_banco(tenancy.banco_controle())
     service.migrar_controle()
     tenancy.forcar_controle(None)  # redetecta: agora o controle existe
     slug = service.registrar_principal_se_faltar(slug_principal)
-    print(f"Banco {tenancy.BANCO_CONTROLE} pronto. Um banco por organização ATIVO (reinicie a API e o worker).")
+    print(f"Banco {tenancy.banco_controle()} pronto. Um banco por organização ATIVO (reinicie a API e o worker).")
     if slug:
         print(f"A organização do banco principal entrou no controle como {slug} (logins no catálogo).")
 
@@ -71,9 +71,9 @@ def main(argv: list[str] | None = None) -> None:
             return
         if not tenancy.multi():
             if a.cmd == "migrar":  # o deploy sempre chama: sem banco de controle, nada a fazer
-                print(f"Sem o banco {tenancy.BANCO_CONTROLE}: um banco só, nada a migrar no controle.")
+                print(f"Sem o banco {tenancy.banco_controle()}: um banco só, nada a migrar no controle.")
                 return
-            sys.exit(f"Sem o banco {tenancy.BANCO_CONTROLE}. Rode antes: python -m app.controle.cli ativar")
+            sys.exit(f"Sem o banco {tenancy.banco_controle()}. Rode antes: python -m app.controle.cli ativar")
         import app.controle.sincronia  # noqa: F401  (catálogo de logins)
 
         if a.cmd == "migrar":

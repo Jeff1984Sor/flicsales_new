@@ -21,7 +21,7 @@ from app.core.tenancy import Organizacao
 log = logging.getLogger(__name__)
 
 SLUG = re.compile(r"^[a-z][a-z0-9-]{1,38}$")
-# Viram subdomínio (<slug>.<DOMINIO_BASE>) e nome de banco (flicsales_<slug>): não podem colidir com infraestrutura.
+# Viram subdomínio (<slug>.<DOMINIO_BASE>) e nome de banco (<BANCO_PREFIXO><slug>): não podem colidir com infraestrutura.
 RESERVADOS = frozenset({"admin", "www", "api", "app", "mail", "email", "smtp", "ftp", "hml", "prod", "dev", "teste",
                         "controle", "flicsales", "suporte", "status", "static", "cdn", "site", "bff"})
 ATIVOS = ("ativo", "suspenso")  # suspensa continua entrando (só avisa); inativa não entra
@@ -211,7 +211,10 @@ def dominio_padrao(slug: str) -> str | None:
 
 
 def nome_do_banco(slug: str) -> str:
-    return "flicsales_" + slug.replace("-", "_")
+    """`<BANCO_PREFIXO><slug>` (hífen vira _). Prefixo do .env: hml e prod coexistem no mesmo servidor."""
+    from app.core.config import settings
+
+    return settings.banco_prefixo + slug.replace("-", "_")
 
 
 def criar_banco(banco: str) -> None:

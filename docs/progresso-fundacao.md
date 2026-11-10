@@ -20,7 +20,7 @@ Agente: Fundação-Backend · 10/11/2026 · escopo: `backend/` (sem `frontend/`,
    (`auth`, `config`, `auditoria`, `public`, `arquivos`), `main.py` (descoberta automática de módulos), `worker.py`.
    Removido: escopo de professor, totem/app do aluno/wellhub, bloqueio por plano (`recursos_http`), usuário Suporte,
    hash do Django, `limpar_dados`.
-2. **Multi-tenant (um banco por organização)** portado: `tenancy.py` (`Organizacao`, claim `org`, `flicsales_controle`),
+2. **Multi-tenant (um banco por organização)** portado: `tenancy.py` (`Organizacao`, claim `org`, banco de controle `BANCO_CONTROLE`),
    `organizacao_http.py` (token → endereço/`X-Forwarded-Host`; conferência de Host), `app/controle/` mínimo
    (`organizacao`, `dominio`, `login` + migração própria `alembic_controle/0001`), catálogo de logins sincronizado
    (`sincronia.py`), provisionamento (`service.provisionar`, com convite ou link de **primeiro acesso**), CLI
@@ -74,6 +74,21 @@ Mudanças (o frontend já está alinhado):
 - Claim do JWT `est` → **`org`**. Permissões `"<recurso>.<acao>"` com recurso pontuado; ações só `ver`/`editar`.
 - Novo: `GET /api/config/usuarios/opcoes` → `[{id, nome, login}]` (livre para logados; para escolher responsável).
 - Sem bloqueio por plano (403 "não está no seu plano") nem usuário Suporte.
+
+## Preparação do hml
+- **Nomes de banco configuráveis**: `BANCO_CONTROLE` (padrão `flicsalesos_controle`) e `BANCO_PREFIXO` (padrão
+  `flicsalesos_`) no `.env` (`core/config.py`, validados: minúsculas, números e `_`). `tenancy.banco_controle()`
+  substitui a constante `BANCO_CONTROLE`; `controle/service.nome_do_banco(slug)` = prefixo + slug (hífen → `_`).
+  Evita colisão com o flicsales antigo (`flicsales_test`…) e deixa hml (`flicsalesos_controle_hml` /
+  `flicsalesos_hml_`) e prod coexistirem. O nome gravado no controle de organizações já existentes não muda.
+  No SQLite de dev o arquivo do controle passa a ser `data/flicsalesos_controle.db` (quem tinha
+  `data/flicsales_controle.db` local: renomeie ou defina `BANCO_CONTROLE=flicsales_controle`).
+  Testes: `tests/tenancy/test_nomes_de_banco.py`.
+- **Seed por organização**: `python -m app.seed --organizacao <slug> [--forcar]` (`seed.popular_organizacao`) popula
+  UMA organização do modo multi com os dados do protótipo e só os usuários de demo (francine/marina/lucas/fin, senha
+  de demonstração). Qualquer ambiente; em prod recusa sem `--forcar`; idempotente; organização inexistente ou sem
+  banco de controle → mensagem dizendo o que fazer. `python -m app.seed` sem argumento continua só dev.
+  Testes: `tests/tenancy/test_seed_organizacao.py`.
 
 ## Pendências
 - **Contrato da IA** (agente Orquestração): a Leitura determinística devolve `{titulo, analise, proxima_acao, evidencias,
