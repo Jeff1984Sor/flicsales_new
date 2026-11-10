@@ -1,0 +1,19 @@
+[Unit]
+Description=FlicSales OS - Worker / tarefas periódicas de cada organização (%i)
+After=network.target postgresql.service
+
+[Service]
+User=__USUARIO__
+WorkingDirectory=__BASE__/%i/backend
+EnvironmentFile=__BASE__/%i/backend/.env
+ExecStart=__BASE__/%i/backend/.venv/bin/python -m app.worker
+Restart=always
+RestartSec=5
+# deixa a tarefa em andamento terminar antes de parar
+TimeoutStopSec=120
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

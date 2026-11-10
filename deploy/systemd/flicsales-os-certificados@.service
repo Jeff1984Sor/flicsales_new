@@ -1,0 +1,7 @@
+[Unit]
+Description=FlicSales OS - endereços e HTTPS das organizações (%i)
+After=network-online.target nginx.service postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash __BASE__/%i/deploy/certificados.sh %i

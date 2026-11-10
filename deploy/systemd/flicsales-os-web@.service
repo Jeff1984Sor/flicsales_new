@@ -1,0 +1,18 @@
+[Unit]
+Description=FlicSales OS - Frontend Next.js + BFF (%i)
+After=network.target
+
+[Service]
+User=__USUARIO__
+WorkingDirectory=__BASE__/%i/frontend
+EnvironmentFile=__BASE__/%i/frontend/.env.production
+Environment=PATH=__NODE_DIR__:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+ExecStart=__NODE_DIR__/npm run start -- --port ${WEB_PORTA} --hostname 127.0.0.1
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
