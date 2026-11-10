@@ -956,7 +956,8 @@ def busca_global(ctx: Ctx, q: str = Query("", max_length=100)):
                                                             None if e.ativo else "inativa") if x) or None,
                           href=f"/nucleo/cadastros?aba=empresas&id={e.id}") for e in emp]))
         pes = ctx.db.execute(select(Pessoa, Empresa.nome).outerjoin(Empresa, Empresa.id == Pessoa.empresa_id)
-                             .where(Pessoa.ativo.is_(True), or_(Pessoa.nome.ilike(like), Pessoa.email.ilike(like)))
+                             .where(Pessoa.ativo.is_(True), or_(Pessoa.nome.ilike(like), Pessoa.email.ilike(like),
+                                                       Empresa.nome_chave.contains(chave)))
                              .order_by(Pessoa.nome).limit(LIMITE_BUSCA)).all()
         if pes:
             grupos.append(GrupoBusca(tipo="pessoas", rotulo="Pessoas e contatos", itens=[

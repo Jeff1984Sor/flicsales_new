@@ -119,6 +119,8 @@ def validar_campos_custom(definicoes: list[DefCampo], enviados: dict[str, Any] |
     for chave, valor in (enviados or {}).items():
         d = por_slug.get(chave)
         if d is None or d.arquivado:
+            if chave in resultado and resultado[chave] == valor:
+                continue  # o formulário reenviou um valor já gravado de campo arquivado: preserva sem validar
             raise RegraViolada(f"Campo personalizado desconhecido: {chave}.")
         v = normalizar_valor(d, valor)
         if v is None:

@@ -63,6 +63,10 @@ def test_merge_preserva_atuais_apaga_com_none_e_mantem_arquivado():
     atuais = {"origem": "Site", "velho": "guardado", "nota": "x"}
     r = validar_campos_custom(DEFS, {"nota": None, "colab": 3}, atuais)
     assert r == {"origem": "Site", "velho": "guardado", "colab": 3}
+    # reenviar o valor já gravado de um campo arquivado não é erro; mudar é
+    assert validar_campos_custom(DEFS, {"velho": "guardado"}, atuais)["velho"] == "guardado"
+    with pytest.raises(RegraViolada, match="desconhecido"):
+        validar_campos_custom(DEFS, {"velho": "novo"}, atuais)
 
 
 def test_obrigatorio():
