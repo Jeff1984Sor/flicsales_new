@@ -7,9 +7,12 @@
  *  - `TelaCentrosCusto` (+ `DrawerCentroCusto`)  código único
  *  - `TelaContas`       (+ `DrawerConta`)        saldo inicial pode ser negativo; com movimento, saldo e data-base travam
  * Todas as telas aceitam `idInicial?: number | null` (abre o drawer). Drawers: `aberto`, `onFechar`, `id: number | null`.
+ * Toda lista tem "Importar planilha" (com `financeiro.cadastros.editar`) e todo drawer tem "✧ Enriquecer com IA";
+ * o de fornecedor também tem "Buscar CNPJ".
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { FolderTree, Landmark, LayoutGrid, Truck } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { BarraFiltros } from "@/components/flic/barra-filtros";
@@ -27,6 +30,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { data as fmtData } from "@/lib/format";
+import { cnpjValido } from "@/lib/validacao";
 import type { Pagina } from "@/lib/types";
 import {
   ROTULO_NATUREZA,
@@ -35,9 +39,15 @@ import {
   type ContaFinanceira,
   type Fornecedor,
   type Natureza,
+  type ObjetoPlanilha,
   type Situacao,
 } from "@/lib/tipos-nucleo";
 
+import { CampoCnpj, preencherVazios } from "./campo-cnpj";
+import { AnexosEmpresa, QuadroSocietario, aplicarCnpj } from "./empresa-extras";
+import { dadosParaIA, mesclarSugestoes } from "./consultas";
+import { EnriquecerIA } from "./enriquecer-ia";
+import { BotaoImportarPlanilha } from "./importar-planilha";
 import { CHIPS_SITUACAO, RodapeFormulario, SeletorCategoria, SeletorResponsavel, alterados, paraEnvio, txt, useInvalidarCadastros } from "./comum";
 import { SeletorEmpresa } from "./seletor-empresa";
 
@@ -56,11 +66,23 @@ function AtivoSelect({ valor, onChange, disabled }: { valor: boolean; onChange: 
 const inativo = (ativo: boolean) => !ativo && <Etiqueta tom="amber">Inativo</Etiqueta>;
 
 /** Drawer de formulário genérico: carrega o registro (se id), monta o form com `key` e salva POST/PATCH. */
-function useCadastro<T, F extends object>(rota: string, chave: string, id: number | null, aberto: boolean, onFechar: () => void) {
+function useCadastro<T, F extends object>(
+  rota: string,
+  chave: string,
+  id: number | null,
+  aberto: boolean,
+  onFechar: () => void,
+  depoisDeCriar?: (criado: T) => Promise<void>,
+) {
   const invalidar = useInvalidarCadastros();
   const registro = useQuery({ queryKey: ["nucleo", chave, "detalhe", id], queryFn: () => api.get<T>(`${rota}/${id}`), enabled: aberto && id != null });
   const salvar = useMutation({
-    mutationFn: (d: Partial<F>) => (id == null ? api.post<T>(rota, d) : api.patch<T>(`${rota}/${id}`, d)),
+    mutationFn: async (d: Partial<F>) => {
+      if (id != null) return api.patch<T>(`${rota}/${id}`, d);
+      const criado = await api.post<T>(rota, d);
+      await depoisDeCriar?.(criado);
+      return criado;
+    },
     onSuccess: () => {
       invalidar(chave);
       notificar.sucesso("Registro salvo");
@@ -89,10 +111,37 @@ interface FormFornecedor {
   ativo: boolean;
 }
 
+const ROTULOS_FORNECEDOR: Record<string, string> = {
+  nome: "Razão social / nome",
+  documento: "CPF / CNPJ",
+  contato: "Contato",
+  email: "E-mail",
+  telefone: "Telefone",
+  condicao_habitual: "Condição habitual",
+  observacoes: "Observações",
+};
+
 export function DrawerFornecedor({ aberto, onFechar, id }: { aberto: boolean; onFechar: () => void; id: number | null }) {
   const { pode } = useAuth();
   const podeEditar = pode(PERM);
-  const { registro: r, pronto, salvar, enviar } = useCadastro<Fornecedor, FormFornecedor & { empresa_id?: number | null }>("/nucleo/fornecedores", "fornecedores", id, aberto, onFechar);
+  const [versao, setVersao] = useState(0);
+  // fornecedor novo com CNPJ: traz quadro societário e comprovante logo depois de salvar
+  const depoisDeCriar = async (criado: Fornecedor) => {
+    if (!cnpjValido(criado.documento)) return;
+    try {
+      await aplicarCnpj(criado.id);
+    } catch {
+      notificar.info("Fornecedor salvo. Os dados da Receita podem ser trazidos depois em “Atualizar pela Receita”.");
+    }
+  };
+  const { registro: r, pronto, salvar, enviar } = useCadastro<Fornecedor, FormFornecedor & { empresa_id?: number | null }>(
+    "/nucleo/fornecedores",
+    "fornecedores",
+    id,
+    aberto,
+    onFechar,
+    depoisDeCriar,
+  );
   const formId = `f-forn-${id ?? "novo"}`;
   return (
     <Drawer
@@ -103,7 +152,13 @@ export function DrawerFornecedor({ aberto, onFechar, id }: { aberto: boolean; on
       descricao={r ? `${r.titulos_pagar} título(s) a pagar · mesma empresa usada nos três módulos` : "Fornecedor é uma empresa do cadastro único, com papel fornecedor."}
       rodape={pronto && podeEditar ? <RodapeFormulario formId={formId} rotulo="Salvar registro" salvando={salvar.isPending} onCancelar={onFechar} /> : undefined}
     >
-      {pronto && <FormularioFornecedor key={`${id}-${r?.id}`} r={r} formId={formId} desabilitado={!podeEditar} onEnviar={enviar} />}
+      {pronto && <FormularioFornecedor key={`${id}-${r?.id}-${versao}`} r={r} formId={formId} desabilitado={!podeEditar} onEnviar={enviar} />}
+      {r && (
+        <div className="mt-8 flex flex-col gap-6 border-t border-line pt-6">
+          <QuadroSocietario empresaId={r.id} documento={r.documento} podeEditar={podeEditar} onAtualizado={() => setVersao((v) => v + 1)} />
+          <AnexosEmpresa empresaId={r.id} podeEditar={podeEditar} />
+        </div>
+      )}
     </Drawer>
   );
 }
@@ -132,8 +187,9 @@ function FormularioFornecedor({
   };
   const [f, setF] = useState(inicial);
   const [existente, setExistente] = useState<number | null>(null);
+  const router = useRouter();
   const set = <K extends keyof FormFornecedor>(k: K, v: FormFornecedor[K]) => setF((x) => ({ ...x, [k]: v }));
-  const t = (k: "nome" | "documento" | "contato" | "email" | "telefone" | "condicao_habitual") => ({
+  const t = (k: "nome" | "contato" | "email" | "telefone" | "condicao_habitual") => ({
     value: f[k],
     disabled: desabilitado,
     className: "h-9",
@@ -154,6 +210,14 @@ function FormularioFornecedor({
         } else onEnviar(inicial, resto as FormFornecedor);
       }}
     >
+      <EnriquecerIA
+        objeto="fornecedor"
+        registroId={r?.id ?? null}
+        dados={dadosParaIA(f)}
+        rotulos={ROTULOS_FORNECEDOR}
+        disabled={desabilitado}
+        onAplicar={(v) => setF((x) => mesclarSugestoes(x, v))}
+      />
       {!r && (
         <Field label="Empresa já cadastrada" dica="Opcional. Use para marcar como fornecedor uma empresa que já existe (sem duplicar o cadastro).">
           <SeletorEmpresa valor={existente} onChange={(v) => setExistente(v)} permitirCriar={false} placeholder="Buscar empresa existente" />
@@ -164,12 +228,31 @@ function FormularioFornecedor({
           <Input {...t("nome")} required autoFocus={!r} />
         </Field>
       )}
+      {!existente && (
+        <CampoCnpj
+          rotulo="CPF / CNPJ"
+          valor={f.documento}
+          onChange={(v) => set("documento", v)}
+          disabled={desabilitado}
+          automatico={!r}
+          registroId={r?.id ?? null}
+          rotuloExistente={r ? "Abrir cadastro existente" : "Usar cadastro existente"}
+          onAbrirExistente={(idExistente) => {
+            if (r) router.push(`/financeiro/empresas?id=${idExistente}`);
+            else setExistente(idExistente);
+          }}
+          onResultado={(c) => {
+            const { form, preenchidos } = preencherVazios(f, {
+              nome: [ROTULOS_FORNECEDOR.nome, c.nome],
+              telefone: [ROTULOS_FORNECEDOR.telefone, c.telefone],
+              email: [ROTULOS_FORNECEDOR.email, c.email_financeiro],
+            });
+            setF(form);
+            return preenchidos;
+          }}
+        />
+      )}
       <div className="grid gap-4 sm:grid-cols-2">
-        {!existente && (
-          <Field label="CPF / CNPJ">
-            <Input {...t("documento")} />
-          </Field>
-        )}
         <Field label="Contato">
           <Input {...t("contato")} />
         </Field>
@@ -217,7 +300,9 @@ function Lista<T>({
   icone,
   filtros,
   rodape,
+  importar,
 }: {
+  importar: ObjetoPlanilha;
   titulo: string;
   descricao: string;
   rotuloNovo?: string;
@@ -240,7 +325,12 @@ function Lista<T>({
   useAtalhoNovo(() => podeEditar && onNovo());
   return (
     <>
-      <PageHeader titulo={titulo} descricao={descricao} acao={podeEditar && <Button onClick={onNovo}>{rotuloNovo}</Button>} />
+      <PageHeader
+        titulo={titulo}
+        descricao={descricao}
+        acoes={<BotaoImportarPlanilha objeto={importar} />}
+        acao={podeEditar && <Button onClick={onNovo}>{rotuloNovo}</Button>}
+      />
       <BarraFiltros
         busca={{ valor: q, onChange: setQ, placeholder: "Filtrar registros desta tela" }}
         chips={{ opcoes: CHIPS_SITUACAO, valor: situacao, onChange: (v) => setSituacao(v as Situacao) }}
@@ -275,6 +365,7 @@ export function TelaFornecedores({ idInicial = null }: { idInicial?: number | nu
     <>
       <Lista<Fornecedor>
         titulo="Fornecedores"
+        importar="fornecedores"
         descricao={DESC}
         podeEditar={pode(PERM)}
         onNovo={() => setNovo(true)}
@@ -353,6 +444,14 @@ function FormularioCategoria({ r, formId, desabilitado, onEnviar }: { r?: Catego
         onEnviar(inicial, (r ? { ...resto, ativo } : resto) as FormCategoria);
       }}
     >
+      <EnriquecerIA
+        objeto="categoria"
+        registroId={r?.id ?? null}
+        dados={dadosParaIA(f)}
+        rotulos={{ nome: "Nome", natureza: "Natureza" }}
+        disabled={desabilitado}
+        onAplicar={(v) => setF((x) => mesclarSugestoes(x, v))}
+      />
       <Field label="Nome" obrigatorio>
         <Input className="h-9" value={f.nome} required autoFocus={!r} disabled={desabilitado} onChange={(e) => set("nome", e.target.value)} />
       </Field>
@@ -389,6 +488,7 @@ export function TelaCategorias({ idInicial = null }: { idInicial?: number | null
     <>
       <Lista<Categoria>
         titulo="Categorias"
+        importar="categorias"
         descricao={DESC}
         podeEditar={pode(PERM)}
         onNovo={() => setNovo(true)}
@@ -471,6 +571,14 @@ function FormularioCentro({ r, formId, desabilitado, onEnviar }: { r?: CentroCus
         onEnviar(inicial, (r ? { ...resto, ativo } : resto) as FormCentro);
       }}
     >
+      <EnriquecerIA
+        objeto="centro_custo"
+        registroId={r?.id ?? null}
+        dados={dadosParaIA(f)}
+        rotulos={{ nome: "Nome", codigo: "Código" }}
+        disabled={desabilitado}
+        onAplicar={(v) => setF((x) => mesclarSugestoes(x, v))}
+      />
       <Field label="Nome" obrigatorio>
         <Input className="h-9" value={f.nome} required autoFocus={!r} disabled={desabilitado} onChange={(e) => set("nome", e.target.value)} />
       </Field>
@@ -503,6 +611,7 @@ export function TelaCentrosCusto({ idInicial = null }: { idInicial?: number | nu
     <>
       <Lista<CentroCusto>
         titulo="Centros de custo"
+        importar="centros-custo"
         descricao={DESC}
         podeEditar={pode(PERM)}
         onNovo={() => setNovo(true)}
@@ -578,6 +687,14 @@ function FormularioConta({ r, formId, desabilitado, onEnviar }: { r?: ContaFinan
         onEnviar(inicial, (r ? { ...resto, ativo } : resto) as FormConta);
       }}
     >
+      <EnriquecerIA
+        objeto="conta"
+        registroId={r?.id ?? null}
+        dados={dadosParaIA(f)}
+        rotulos={{ nome: "Nome da conta", instituicao: "Instituição / identificação gerencial" }}
+        disabled={desabilitado}
+        onAplicar={(v) => setF((x) => mesclarSugestoes(x, v))}
+      />
       <Field label="Nome da conta" obrigatorio>
         <Input className="h-9" value={f.nome} required autoFocus={!r} disabled={desabilitado} onChange={(e) => set("nome", e.target.value)} />
       </Field>
@@ -616,6 +733,7 @@ export function TelaContas({ idInicial = null }: { idInicial?: number | null }) 
     <>
       <Lista<ContaFinanceira>
         titulo="Contas financeiras"
+        importar="contas"
         descricao={DESC}
         podeEditar={pode(PERM)}
         onNovo={() => setNovo(true)}

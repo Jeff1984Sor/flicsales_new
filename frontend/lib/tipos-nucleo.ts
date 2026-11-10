@@ -33,6 +33,19 @@ export const ROTULO_TIPO_CAMPO: Record<TipoCampo, string> = {
 };
 export const ROTULO_OBJETO: Record<ObjetoCampo, string> = { empresa: "Empresa", pessoa: "Pessoa", oportunidade: "Oportunidade" };
 
+/** Endereço estruturado de empresa e pessoa (CEP no formato 00000-000, UF com 2 letras). */
+export interface Endereco {
+  cep?: string | null;
+  logradouro?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+}
+export const CAMPOS_ENDERECO = ["cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf"] as const;
+export type CampoEndereco = (typeof CAMPOS_ENDERECO)[number];
+
 export interface ContatoResumo {
   id: number;
   nome: string;
@@ -41,7 +54,7 @@ export interface ContatoResumo {
   telefone: string | null;
 }
 
-export interface Empresa {
+export interface Empresa extends Endereco {
   id: number;
   nome: string;
   documento: string | null;
@@ -74,7 +87,7 @@ export interface EmpresaDetalhe extends Empresa {
   contatos: ContatoResumo[];
 }
 
-export interface EmpresaEntrada {
+export interface EmpresaEntrada extends Endereco {
   nome?: string;
   documento?: string | null;
   nome_fantasia?: string | null;
@@ -94,7 +107,9 @@ export interface EmpresaEntrada {
   ativo?: boolean;
 }
 
-export interface Pessoa {
+export interface Pessoa extends Endereco {
+  /** o endereço segue o da empresa vinculada (padrão ligado) */
+  usa_endereco_da_empresa?: boolean;
   id: number;
   nome: string;
   empresa_id: number | null;
@@ -248,4 +263,94 @@ export interface UsuarioOpcao {
   id: number;
   nome: string;
   login: string | null;
+}
+
+// ---------------------------------------------------------------- consultas públicas (CNPJ / CEP)
+export interface ConsultaCep {
+  cep: string;
+  logradouro: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  fonte: string;
+}
+
+export interface ConsultaCnpj extends Endereco {
+  documento: string;
+  nome: string | null;
+  nome_fantasia: string | null;
+  segmento: string | null;
+  porte: string | null;
+  situacao: string | null;
+  /** AAAA-MM-DD */
+  abertura: string | null;
+  telefone: string | null;
+  email_financeiro: string | null;
+  fonte: string;
+  empresa_existente: { id: number; nome: string } | null;
+  socios?: SocioConsulta[];
+  cnae_principal?: string | null;
+  cnaes_secundarios?: string[];
+  natureza_juridica?: string | null;
+  /** decimal em string ("10000.00") */
+  capital_social?: string | null;
+}
+
+// ---------------------------------------------------------------- quadro societário e anexos da empresa
+export interface SocioConsulta {
+  nome: string;
+  qualificacao: string | null;
+  /** CPF vem mascarado da Receita: mostrar como veio */
+  documento: string | null;
+  /** AAAA-MM-DD */
+  data_entrada: string | null;
+  faixa_etaria: string | null;
+}
+
+export interface Socio extends SocioConsulta {
+  id: number;
+}
+
+export type TipoAnexo = "cartao_cnpj" | "contrato" | "documento" | "outro";
+export const ROTULO_TIPO_ANEXO: Record<TipoAnexo, string> = {
+  cartao_cnpj: "Cartão CNPJ",
+  contrato: "Contrato",
+  documento: "Documento",
+  outro: "Outro",
+};
+
+export interface AnexoEmpresa {
+  id: number;
+  nome: string;
+  tipo: TipoAnexo;
+  mime: string | null;
+  tamanho: number;
+  enviado_por_nome: string | null;
+  /** instante ISO */
+  criado_em: string;
+  url: string | null;
+}
+
+// ---------------------------------------------------------------- planilhas de migração
+export type ObjetoPlanilha = "empresas" | "fornecedores" | "pessoas" | "produtos" | "categorias" | "centros-custo" | "contas";
+
+export interface ErroImportacao {
+  linha: number;
+  coluna: string | null;
+  mensagem: string;
+}
+
+export interface PreviaImportacao {
+  linha: number;
+  acao: "criar" | "atualizar" | "ignorar";
+  nome: string | null;
+}
+
+export interface ResultadoImportacao {
+  total: number;
+  criar: number;
+  atualizar: number;
+  ignorar: number;
+  erros: ErroImportacao[];
+  previa: PreviaImportacao[];
 }

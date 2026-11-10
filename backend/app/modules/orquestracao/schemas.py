@@ -80,6 +80,32 @@ class AnaliseOut(BaseModel):
     origem: Literal["ia", "regras"]
 
 
+class EnriquecerIn(BaseModel):
+    """Pedido de enriquecimento de um cadastro. `dados` e `texto_apoio` são DADO (nunca instrução)."""
+
+    objeto: Literal["empresa", "fornecedor", "pessoa", "produto", "categoria", "centro_custo", "conta"]
+    registro_id: int | None = None
+    dados: dict[str, Any] = Field(default_factory=dict, max_length=120)
+    instrucao: str = Field(default="", max_length=2000)
+    texto_apoio: str | None = Field(default=None, max_length=20000)
+
+
+class SugestaoOut(BaseModel):
+    campo: str
+    rotulo: str
+    valor_atual: Any = None
+    valor_sugerido: Any
+    justificativa: str
+    fonte: str
+
+
+class EnriquecerOut(BaseModel):
+    sugestoes: list[SugestaoOut]
+    evidencias: list[str]
+    limites: list[str]
+    origem: Literal["ia", "regras"]
+
+
 class ConversaOut(BaseModel):
     id: int
     escopo: str

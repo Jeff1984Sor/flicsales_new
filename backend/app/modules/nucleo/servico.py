@@ -5,6 +5,8 @@
   oportunidade contra o catálogo `campo_custom` e devolve o dicionário final (levanta `RegraViolada` → 400).
 - `vinculos_da_empresa(db, empresa_id)` / `mesclar_empresas(db, destino=, origem=)`  qualidade dos dados.
 - `dependencias_do_campo(db, campo)`  onde um campo personalizado é usado (dashboards, automações, etapas).
+- `propagar_endereco_empresa(db, empresa)`  endereço da empresa mudou → pessoas com `usa_endereco_da_empresa`
+  recebem o novo (devolve o que mudou para o chamador auditar como `pessoa.endereco_da_empresa`).
 
 Nenhuma função faz commit: a rota (ou o módulo chamador) audita e confirma.
 """
@@ -20,7 +22,16 @@ from sqlalchemy.orm import Session
 
 from app.core.db import Base
 from app.domain import RegraViolada
-from app.domain.cadastro import PAPEIS_EMPRESA, chave_de_nome, validar_nome, validar_papeis
+from app.domain.cadastro import (
+    PAPEIS_EMPRESA,
+    PessoaEndereco,
+    chave_de_nome,
+    endereco_de,
+    endereco_vazio,
+    propagar_endereco,
+    validar_nome,
+    validar_papeis,
+)
 from app.modules.nucleo.models import CampoCustom, Empresa, Pessoa
 from app.modules.nucleo.regras import DefCampo
 from app.modules.nucleo.regras import validar_campos_custom as _validar
@@ -60,6 +71,24 @@ def obter_ou_criar_empresa(db: Session, nome: str, *, responsavel_id: int | None
     db.add(e)
     db.flush()
     return e, True
+
+
+def propagar_endereco_empresa(db: Session, empresa: Empresa) -> list[tuple[Pessoa, dict, dict]]:
+    """Copia o endereço da empresa para as pessoas vinculadas com a marca ligada (regra em
+    app.domain.cadastro.propagar_endereco). Devolve [(pessoa, antes, depois)] de quem mudou. Só flush; quem chama
+    audita (`pessoa.endereco_da_empresa`) e confirma."""
+    pessoas = {p.id: p for p in db.scalars(select(Pessoa).where(Pessoa.empresa_id == empresa.id))}
+    mudancas = propagar_endereco(endereco_de(empresa), [
+        PessoaEndereco(p.id, p.usa_endereco_da_empresa, endereco_de(p)) for p in pessoas.values()])
+    out = []
+    for pid, novo in mudancas:
+        p = pessoas[pid]
+        antes = endereco_de(p)
+        for k, v in novo.items():
+            setattr(p, k, v)
+        out.append((p, {k: v for k, v in antes.items() if novo[k] != v}, {k: v for k, v in novo.items() if antes[k] != v}))
+    db.flush()
+    return out
 
 
 # ------------------------------------------------------------------------------------------------- campos custom
@@ -200,6 +229,9 @@ def mesclar_empresas(db: Session, *, destino: Empresa, origem: Empresa, hoje: da
     for campo in _COPIAVEIS:
         if getattr(destino, campo) in (None, "") and getattr(origem, campo) not in (None, ""):
             setattr(destino, campo, getattr(origem, campo))
+    if endereco_vazio(endereco_de(destino)) and not endereco_vazio(endereco_de(origem)):  # endereço vem inteiro
+        for k, v in endereco_de(origem).items():
+            setattr(destino, k, v)
     destino.papeis = [p for p in PAPEIS_EMPRESA if p in set(destino.papeis) | set(origem.papeis)]
     destino.campos_custom = {**(origem.campos_custom or {}), **(destino.campos_custom or {})}
     if origem.observacoes:

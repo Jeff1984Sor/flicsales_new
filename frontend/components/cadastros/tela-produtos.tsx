@@ -27,6 +27,9 @@ import type { Pagina } from "@/lib/types";
 import { ROTULO_TIPO_PRODUTO, type Produto, type Situacao, type TipoProduto } from "@/lib/tipos-nucleo";
 
 import { CHIPS_SITUACAO, RodapeFormulario, alterados, paraEnvio, txt, useInvalidarCadastros } from "./comum";
+import { dadosParaIA, mesclarSugestoes } from "./consultas";
+import { EnriquecerIA } from "./enriquecer-ia";
+import { BotaoImportarPlanilha } from "./importar-planilha";
 
 const POR_PAGINA = 50;
 
@@ -52,7 +55,30 @@ const formDe = (p?: Produto): FormProduto => ({
   ativo: p?.ativo ?? true,
 });
 
-function Formulario({ inicial, editando, formId, onSalvar, desabilitado }: { inicial: FormProduto; editando: boolean; formId: string; onSalvar: (d: Partial<FormProduto>) => void; desabilitado?: boolean }) {
+const ROTULOS: Record<string, string> = {
+  nome: "Nome",
+  tipo: "Tipo",
+  codigo: "Código / SKU",
+  unidade: "Unidade",
+  preco_referencia: "Preço de referência (R$)",
+  recorrente: "Recorrente",
+  descricao: "Descrição / escopo",
+};
+
+function Formulario({
+  inicial,
+  produtoId,
+  formId,
+  onSalvar,
+  desabilitado,
+}: {
+  inicial: FormProduto;
+  produtoId: number | null;
+  formId: string;
+  onSalvar: (d: Partial<FormProduto>) => void;
+  desabilitado?: boolean;
+}) {
+  const editando = produtoId != null;
   const [f, setF] = useState(inicial);
   const set = <K extends keyof FormProduto>(k: K, v: FormProduto[K]) => setF((x) => ({ ...x, [k]: v }));
   return (
@@ -67,6 +93,14 @@ function Formulario({ inicial, editando, formId, onSalvar, desabilitado }: { ini
         onSalvar(dados);
       }}
     >
+      <EnriquecerIA
+        objeto="produto"
+        registroId={produtoId}
+        dados={dadosParaIA(f)}
+        rotulos={ROTULOS}
+        disabled={desabilitado}
+        onAplicar={(v) => setF((x) => mesclarSugestoes(x, v))}
+      />
       <Field label="Nome" obrigatorio>
         <Input className="h-9" value={f.nome} disabled={desabilitado} required autoFocus={!editando} onChange={(e) => set("nome", e.target.value)} />
       </Field>
@@ -139,7 +173,7 @@ export function DrawerProduto({ aberto, onFechar, produtoId, onSalvo }: { aberto
         <Formulario
           key={`${produtoId ?? "novo"}-${p?.id ?? ""}`}
           inicial={formDe(p)}
-          editando={produtoId != null}
+          produtoId={produtoId}
           formId={formId}
           desabilitado={!podeEditar}
           onSalvar={(d) => (produtoId != null && Object.keys(d).length === 0 ? notificar("Nada mudou.") : salvar.mutate(d))}
@@ -187,6 +221,7 @@ export function TelaProdutos({ embutida, idInicial = null }: { embutida?: boolea
         <PageHeader
           titulo="Produtos e serviços"
           descricao="O que você vende, com preço de referência para propostas."
+          acoes={<BotaoImportarPlanilha objeto="produtos" />}
           acao={podeEditar && <Button onClick={() => setNovo(true)}>+ Novo registro</Button>}
         />
       )}
@@ -207,6 +242,7 @@ export function TelaProdutos({ embutida, idInicial = null }: { embutida?: boolea
           ],
         }}
       >
+        {embutida && <BotaoImportarPlanilha objeto="produtos" />}
         {embutida && podeEditar && <Button onClick={() => setNovo(true)}>+ Produto ou serviço</Button>}
       </BarraFiltros>
       <DataTable

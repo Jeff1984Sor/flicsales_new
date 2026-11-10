@@ -121,14 +121,22 @@ def demo(db: Session, hoje: date) -> bool:
         db.add(e)
         return e
 
+    # endereços de demonstração (estruturados: cep, logradouro, número, bairro, cidade, uf)
+    def endereco(cep, logradouro, numero, bairro, cidade, uf):
+        return dict(cep=cep, logradouro=logradouro, numero=numero, bairro=bairro, cidade=cidade, uf=uf)
+
     aurora = empresa("Aurora Consultoria", "cliente", segmento="Consultoria", responsavel_id=marina.id,
-                     campos_custom={"origem": "Indicação"}, origem="Indicação")
+                     campos_custom={"origem": "Indicação"}, origem="Indicação",
+                     **endereco("01310-100", "Avenida Paulista", "1000", "Bela Vista", "São Paulo", "SP"))
     vertice = empresa("Vértice Serviços", "prospect", segmento="Serviços", responsavel_id=lucas.id,
-                      campos_custom={"origem": "Site"}, origem="Site")
+                      campos_custom={"origem": "Site"}, origem="Site",
+                      **endereco("80010-000", "Rua XV de Novembro", "250", "Centro", "Curitiba", "PR"))
     horizonte = empresa("Horizonte Gestão", "prospect", segmento="Gestão", responsavel_id=marina.id,
-                        campos_custom={"origem": "Evento"}, origem="Evento")
+                        campos_custom={"origem": "Evento"}, origem="Evento",
+                        **endereco("30130-000", "Avenida Afonso Pena", "1500", "Centro", "Belo Horizonte", "MG"))
     atlas = empresa("Atlas Tecnologia", "prospect", segmento="Tecnologia", responsavel_id=lucas.id,
-                    campos_custom={"origem": "Prospecção ativa"}, origem="Prospecção ativa")
+                    campos_custom={"origem": "Prospecção ativa"}, origem="Prospecção ativa",
+                    **endereco("20040-020", "Avenida Rio Branco", "45", "Centro", "Rio de Janeiro", "RJ"))
     ponto_norte = empresa("Ponto Norte", "cliente", email_financeiro="financeiro@pontonorte.demo")
     estudio_base = empresa("Estúdio Base", "cliente", email_financeiro="contas@estudiobase.demo")
     lume = empresa("Lume Serviços", "cliente")
@@ -143,7 +151,9 @@ def demo(db: Session, hoje: date) -> bool:
                                     (horizonte, "Camila Rocha", "Sócia", "whatsapp"),
                                     (atlas, "Diego Martins", "CTO", "email")]:
         contatos[emp.nome] = Pessoa(nome=nome, empresa_id=emp.id, cargo=cargo, canal_preferido=canal,
-                                    responsavel_id=emp.responsavel_id)
+                                    responsavel_id=emp.responsavel_id, usa_endereco_da_empresa=True,
+                                    **{k: getattr(emp, k) for k in ("cep", "logradouro", "numero", "complemento",
+                                                                    "bairro", "cidade", "uf")})
     db.add_all(contatos.values())
     db.flush()
 

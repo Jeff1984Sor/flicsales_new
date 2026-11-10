@@ -8,6 +8,8 @@
  *  - `pessoaId: number | null`              null = nova pessoa
  *  - `empresaIdInicial?: number | null`     vincula a nova pessoa a esta empresa ("Novo contato" da empresa)
  *  - `onSalva?: (pessoa: Pessoa) => void`
+ * Com empresa vinculada, "Usar endereço da empresa" (ligado por padrão) copia e trava o endereço; desligar libera.
+ * "✧ Enriquecer com IA" separa nome, cargo e contatos de um texto colado.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -18,16 +20,20 @@ import { Field, NativeSelect } from "@/components/flic/form";
 import { notificar } from "@/components/flic/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { ROTULO_CANAL, type CanalPreferido, type Pessoa, type ValoresCampos } from "@/lib/tipos-nucleo";
+import { ROTULO_CANAL, type CanalPreferido, type Empresa, type Pessoa, type ValoresCampos } from "@/lib/tipos-nucleo";
 
 import { CamposPersonalizados } from "./campos-personalizados";
+import { dadosParaIA, mesclarSugestoes } from "./consultas";
+import { BlocoEndereco, enderecoDe, type ValorEndereco } from "./endereco";
+import { EnriquecerIA } from "./enriquecer-ia";
 import { RodapeFormulario, SeletorResponsavel, alterados, paraEnvio, txt, useInvalidarCadastros } from "./comum";
 import { SeletorEmpresa } from "./seletor-empresa";
 
-interface FormPessoa {
+interface FormPessoa extends ValorEndereco {
   nome: string;
   empresa_id: number | null;
   cargo: string;
@@ -37,7 +43,24 @@ interface FormPessoa {
   canal_preferido: CanalPreferido | "";
   observacoes: string;
   campos_custom: ValoresCampos;
+  usa_endereco_da_empresa: boolean;
 }
+
+const ROTULOS: Record<string, string> = {
+  nome: "Nome",
+  cargo: "Cargo / papel na compra",
+  email: "E-mail",
+  telefone: "Telefone / WhatsApp",
+  canal_preferido: "Canal preferido",
+  observacoes: "Observações",
+  cep: "CEP",
+  logradouro: "Logradouro",
+  numero: "Número",
+  complemento: "Complemento",
+  bairro: "Bairro",
+  cidade: "Cidade",
+  uf: "UF",
+};
 
 function formDe(p: Pessoa | undefined, empresaId: number | null): FormPessoa {
   return {
@@ -50,11 +73,38 @@ function formDe(p: Pessoa | undefined, empresaId: number | null): FormPessoa {
     canal_preferido: p?.canal_preferido ?? "",
     observacoes: txt(p?.observacoes),
     campos_custom: p?.campos_custom ?? {},
+    ...enderecoDe(p),
+    usa_endereco_da_empresa: p?.usa_endereco_da_empresa ?? true,
   };
 }
 
-function Formulario({ inicial, editando, formId, onSalvar, desabilitado }: { inicial: FormPessoa; editando: boolean; formId: string; onSalvar: (d: Partial<FormPessoa>) => void; desabilitado?: boolean }) {
+function Formulario({
+  inicial,
+  pessoaId,
+  formId,
+  onSalvar,
+  desabilitado,
+}: {
+  inicial: FormPessoa;
+  pessoaId: number | null;
+  formId: string;
+  onSalvar: (d: Partial<FormPessoa>) => void;
+  desabilitado?: boolean;
+}) {
+  const editando = pessoaId != null;
   const [f, setF] = useState(inicial);
+  // endereço da empresa escolhida (mesma chave do SeletorEmpresa: vem do cache)
+  const empresa = useQuery({
+    queryKey: ["nucleo", "empresas", "item", f.empresa_id],
+    queryFn: () => api.get<Empresa>(`/nucleo/empresas/${f.empresa_id}`),
+    enabled: f.empresa_id != null,
+    staleTime: 60_000,
+    meta: { silencioso: true },
+  });
+  const seguirEmpresa = f.empresa_id != null && f.usa_endereco_da_empresa;
+  const endEmpresa = enderecoDe(empresa.data);
+  // com a marca ligada o endereço exibido e enviado é o da empresa
+  const endereco: ValorEndereco = seguirEmpresa ? (empresa.data ? endEmpresa : enderecoDe(f)) : enderecoDe(f);
   const set = <K extends keyof FormPessoa>(k: K, v: FormPessoa[K]) => setF((x) => ({ ...x, [k]: v }));
   const texto = (k: "nome" | "cargo" | "email" | "telefone") => ({
     value: f[k],
@@ -68,10 +118,24 @@ function Formulario({ inicial, editando, formId, onSalvar, desabilitado }: { ini
       className="flex flex-col gap-4"
       onSubmit={(e) => {
         e.preventDefault();
-        const atual = paraEnvio(f) as FormPessoa;
+        const atual = paraEnvio({ ...f, ...endereco }) as FormPessoa;
         onSalvar(editando ? alterados(paraEnvio(inicial) as FormPessoa, atual) : atual);
       }}
     >
+      <EnriquecerIA
+        objeto="pessoa"
+        registroId={pessoaId}
+        dados={dadosParaIA({ ...f, ...endereco })}
+        rotulos={ROTULOS}
+        disabled={desabilitado}
+        onAplicar={(v) =>
+          setF((x) => {
+            // sugestão de endereço vale como endereço próprio (parte do endereço que estava na tela)
+            const mexeuEndereco = Object.keys(v).some((k) => k in endEmpresa);
+            return mexeuEndereco && seguirEmpresa ? mesclarSugestoes({ ...x, ...endereco, usa_endereco_da_empresa: false }, v) : mesclarSugestoes(x, v);
+          })
+        }
+      />
       <Field label="Nome" obrigatorio>
         <Input {...texto("nome")} required autoFocus={!editando} />
       </Field>
@@ -102,6 +166,30 @@ function Formulario({ inicial, editando, formId, onSalvar, desabilitado }: { ini
           </NativeSelect>
         </Field>
       </div>
+      {f.empresa_id != null && (
+        <label className="flex items-center justify-between gap-4 rounded-[10px] border border-line px-3.5 py-3">
+          <span>
+            <span className="block text-sm font-medium">Usar endereço da empresa</span>
+            <span className="block text-xs text-muted">
+              {f.usa_endereco_da_empresa ? "Copia e acompanha o endereço da empresa." : "Endereço próprio deste contato."}
+            </span>
+          </span>
+          <Switch
+            checked={f.usa_endereco_da_empresa}
+            disabled={desabilitado}
+            onCheckedChange={(v) =>
+              // ao desligar, parte do endereço da empresa para editar
+              setF((x) => ({ ...x, ...(v ? {} : empresa.data ? endEmpresa : {}), usa_endereco_da_empresa: v }))
+            }
+          />
+        </label>
+      )}
+      <BlocoEndereco
+        valor={endereco}
+        disabled={desabilitado || seguirEmpresa}
+        onChange={(p) => setF((x) => ({ ...x, ...p }))}
+        dica={seguirEmpresa && !empresa.data?.cep && !empresa.data?.logradouro ? "A empresa ainda não tem endereço." : undefined}
+      />
       <Field label="Observações">
         <Textarea value={f.observacoes} disabled={desabilitado} onChange={(e) => set("observacoes", e.target.value)} />
       </Field>
@@ -185,7 +273,7 @@ export function DrawerPessoa({
         <Formulario
           key={`${pessoaId ?? "nova"}-${empresaIdInicial ?? ""}-${p?.id ?? ""}`}
           inicial={formDe(p, empresaIdInicial)}
-          editando={pessoaId != null}
+          pessoaId={pessoaId}
           formId={formId}
           desabilitado={!podeEditar}
           onSalvar={(d) => {

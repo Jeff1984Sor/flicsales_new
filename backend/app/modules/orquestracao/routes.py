@@ -5,6 +5,7 @@
 | GET  /orquestracao/leitura?modulo=                       | orquestracao.ia.ver |
 | GET  /orquestracao/ia/estado · /ia/conversas[/{id}/mensagens] | orquestracao.ia.ver |
 | POST /orquestracao/ia/perguntar                          | orquestracao.ia.editar (grava a conversa) |
+| POST /orquestracao/ia/enriquecer                         | orquestracao.ia.ver (+ ver do cadastro do objeto) |
 | POST /orquestracao/ia/comunicacoes/{id}/analisar         | comercial.comunicacoes.editar (+ orquestracao.ia.ver) |
 | POST /orquestracao/acoes/executar                        | orquestracao.ia.editar (+ comercial.atividades.editar) |
 | /orquestracao/automacoes*                                | orquestracao.automacoes.ver/editar (+ acesso à área) |
@@ -31,6 +32,7 @@ from app.modules.orquestracao.models import Automacao, AutomacaoExecucao, IaMens
 adicionar_regras([
     ("POST", r"/orquestracao/ia/comunicacoes/\d+/analisar$", "comercial.comunicacoes.editar"),
     ("POST", r"/orquestracao/acoes/executar$", "orquestracao.ia.editar"),
+    ("POST", r"/orquestracao/ia/enriquecer$", "orquestracao.ia.ver"),  # + ver do cadastro (na rota); nada grava
     ("GET", r"/orquestracao/automacoes/avisos$", None),
     ("GET", r"/orquestracao/consumo$", "nucleo.administracao.ver"),
 ])

@@ -21,6 +21,7 @@ import { ROTULO_CANAL, type Pessoa, type Situacao } from "@/lib/tipos-nucleo";
 
 import { CHIPS_SITUACAO } from "./comum";
 import { DrawerPessoa } from "./drawer-pessoa";
+import { BotaoImportarPlanilha } from "./importar-planilha";
 
 const POR_PAGINA = 50;
 
@@ -62,6 +63,7 @@ export function TelaPessoas({ embutida, idInicial = null }: { embutida?: boolean
         <PageHeader
           titulo="Pessoas e contatos"
           descricao="Quem decide, quem influencia e como prefere ser procurado."
+          acoes={<BotaoImportarPlanilha objeto="pessoas" />}
           acao={podeEditar && <Button onClick={() => setNova(true)}>+ Novo registro</Button>}
         />
       )}
@@ -82,6 +84,7 @@ export function TelaPessoas({ embutida, idInicial = null }: { embutida?: boolean
           ],
         }}
       >
+        {embutida && <BotaoImportarPlanilha objeto="pessoas" />}
         {embutida && podeEditar && <Button onClick={() => setNova(true)}>+ Pessoa</Button>}
       </BarraFiltros>
       <DataTable

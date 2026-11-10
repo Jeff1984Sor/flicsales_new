@@ -7,30 +7,63 @@ Permissões (app/core/permissoes.py + as regras abaixo):
   campos                                    → nucleo.campos.(ver|editar)
   duplicidades, empresas/{id}/mesclar       → nucleo.administracao.(ver|editar)  (Qualidade dos dados)
   busca                                     → qualquer logado; cada grupo respeita a permissão do recurso
+  consultas/cnpj|cep                        → nucleo.cadastros.ver  (consulta pública no servidor; nada é gravado)
+  empresas/{id}/(socios|anexos|cnpj/aplicar) → nucleo.cadastros.(ver|editar)
+  planilhas/(empresas|pessoas|produtos)     → nucleo.cadastros.(ver modelo | editar importar)
+  planilhas/(fornecedores|categorias|centros-custo|contas) → financeiro.cadastros.(ver | editar)
 Nada é excluído: DELETE inativa (ou arquiva). Toda mudança é auditada.
 """
 
+import mimetypes
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
+from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from app.core import audit
+from app.core import audit, storage
+from app.core.config import settings
 from app.core.db import hoje
 from app.core.deps import Ctx
 from app.core.models import Usuario
 from app.core.permissoes import adicionar_regras
 from app.core.schemas import Pagina
 from app.domain import RegraViolada
-from app.domain.cadastro import chave_de_nome, validar_nome, validar_papeis
+from app.domain.cadastro import (
+    CAMPOS_ENDERECO,
+    CAMPOS_PREENCHIVEIS_CNPJ,
+    chave_de_nome,
+    cnpj_valido,
+    endereco_de,
+    normalizar_endereco,
+    preencher_vazios,
+    resolver_endereco_pessoa,
+    validar_nome,
+    validar_papeis,
+)
 from app.domain.caixa import validar_edicao_conta
 from app.modules.comercial.models import Etapa, Funil, Oportunidade
 from app.modules.financeiro.models import Baixa, Titulo, Transferencia
-from app.modules.nucleo import regras, servico
-from app.modules.nucleo.models import CampoCustom, Categoria, CentroCusto, ContaFinanceira, Empresa, Pessoa, Produto
+from app.modules.nucleo import consultas, planilhas, regras, servico
+from app.modules.nucleo.comprovante import gerar_comprovante_cnpj
+from app.modules.nucleo.models import (
+    CampoCustom,
+    Categoria,
+    CentroCusto,
+    ContaFinanceira,
+    Empresa,
+    EmpresaAnexo,
+    EmpresaSocio,
+    Pessoa,
+    Produto,
+)
 from app.modules.nucleo.schemas import (
+    AnexoSaida,
     ArquivarIn,
     BuscaSaida,
     CampoAtualizar,
@@ -42,6 +75,8 @@ from app.modules.nucleo.schemas import (
     CentroAtualizar,
     CentroCriar,
     CentroSaida,
+    ConsultaCepSaida,
+    ConsultaCnpjSaida,
     ContaAtualizar,
     ContaCriar,
     ContaSaida,
@@ -59,6 +94,7 @@ from app.modules.nucleo.schemas import (
     FornecedorCriar,
     FornecedorSaida,
     GrupoBusca,
+    ImportacaoSaida,
     ItemBusca,
     MesclarIn,
     MesclaSaida,
@@ -69,17 +105,24 @@ from app.modules.nucleo.schemas import (
     ProdutoAtualizar,
     ProdutoCriar,
     ProdutoSaida,
+    SocioSaida,
+    TipoAnexo,
 )
 
 adicionar_regras([
     ("GET", r"/nucleo/busca$", None),  # livre para logados; cada grupo confere a permissão do recurso
     ("POST", r"/nucleo/empresas/\d+/mesclar$", "nucleo.administracao.editar"),
     ("*", r"/nucleo/(fornecedores|categorias|centros-custo|contas)", "financeiro.cadastros.*e"),
+    ("GET", r"/nucleo/consultas/(cnpj|cep)/[^/]+$", "nucleo.cadastros.ver"),
+    ("*", r"/nucleo/planilhas/(fornecedores|categorias|centros-custo|contas)/", "financeiro.cadastros.*e"),
+    # empresas, pessoas, produtos — e objeto desconhecido (a rota responde 404 depois do login)
+    ("*", r"/nucleo/planilhas/[^/]+/", "nucleo.cadastros.*e"),
 ])
 
 router = APIRouter(prefix="/nucleo", tags=["núcleo"])
 
 Situacao = Literal["ativos", "inativos", "todos"]
+CATEGORIA_ANEXOS = "empresas_anexos"
 ZERO = Decimal("0.00")
 
 
@@ -139,6 +182,13 @@ def _alterar(ctx: Ctx, obj, dados: dict, acao: str, entidade: str, duplicado: st
     if a or d:
         ctx.auditar(acao, entidade, obj.id, antes=a, depois=d)
     _commit(ctx, duplicado)
+
+
+def _propagar_endereco(ctx: Ctx, e: Empresa) -> None:
+    """Endereço da empresa mudou: as pessoas com "usar endereço da empresa" recebem o novo (auditado)."""
+    for p, a, d in servico.propagar_endereco_empresa(ctx.db, e):
+        ctx.auditar("pessoa.endereco_da_empresa", "pessoa", p.id,
+                    descricao=f"{p.nome}: endereço atualizado com o de {e.nome}", antes=a, depois=d)
 
 
 def _inativar(ctx: Ctx, obj, entidade: str, rotulo: str) -> None:
@@ -210,7 +260,7 @@ def _validar_empresa(ctx: Ctx, e: Empresa | None, dados: dict) -> dict:
     if "campos_custom" in dados or e is None:
         dados["campos_custom"] = servico.validar_campos_custom(
             ctx.db, "empresa", dados.get("campos_custom") or {}, e.campos_custom if e else None)
-    return dados
+    return normalizar_endereco(dados)
 
 
 @router.get("/empresas", response_model=Pagina[EmpresaSaida])
@@ -271,6 +321,8 @@ def atualizar_empresa(empresa_id: int, dados: EmpresaAtualizar, ctx: Ctx):
     if a or d:
         descricao = f"{antes['nome']} → {e.nome}" if "nome" in d else e.nome
         ctx.auditar("empresa.alterar", "empresa", e.id, descricao=descricao, antes=a, depois=d)
+    if any(k in d for k in CAMPOS_ENDERECO):
+        _propagar_endereco(ctx, e)
     _commit(ctx, "Já existe empresa com este nome")
     return _empresa_completa(ctx, e, EmpresaDetalhe)
 
@@ -296,6 +348,7 @@ def mesclar_empresa(empresa_id: int, dados: MesclarIn, ctx: Ctx):
                 antes=a, depois={**d, "vinculos_movidos": movidos, "duplicada_id": origem.id})
     a, d = audit.diff(antes_origem, audit.snapshot(origem))
     ctx.auditar("empresa.inativar", "empresa", origem.id, descricao=f"Mesclada em “{destino.nome}”", antes=a, depois=d)
+    _propagar_endereco(ctx, destino)  # contatos que vieram da duplicada passam a usar o endereço da que fica
     ctx.db.commit()
     total = sum(movidos.values())
     return MesclaSaida(empresa=_empresa_completa(ctx, destino), movidos=movidos,
@@ -347,6 +400,17 @@ def _validar_pessoa(ctx: Ctx, p: Pessoa | None, dados: dict) -> dict:
     if "campos_custom" in dados or p is None:
         dados["campos_custom"] = servico.validar_campos_custom(
             ctx.db, "pessoa", dados.get("campos_custom") or {}, p.campos_custom if p else None)
+    dados = normalizar_endereco(dados)
+    # endereço e a marca "usar o da empresa" (regra pura: app.domain.cadastro.resolver_endereco_pessoa)
+    marca = dados.pop("usa_endereco_da_empresa", None)
+    enviado = {k: dados.pop(k) for k in CAMPOS_ENDERECO if k in dados}
+    if p is None or enviado or marca is not None or "empresa_id" in dados:
+        empresa_id = dados["empresa_id"] if "empresa_id" in dados else (p.empresa_id if p else None)
+        empresa = ctx.db.get(Empresa, empresa_id) if empresa_id else None
+        m, endereco = resolver_endereco_pessoa(
+            marca_atual=p.usa_endereco_da_empresa if p else True, endereco_atual=endereco_de(p) if p else {},
+            enviado=enviado, marca_enviada=marca, endereco_empresa=endereco_de(empresa) if empresa else None)
+        dados.update(endereco, usa_endereco_da_empresa=m)
     return dados
 
 
@@ -479,7 +543,7 @@ def _fornecedor_saida(ctx: Ctx, e: Empresa) -> FornecedorSaida:
     return FornecedorSaida(id=e.id, nome=e.nome, documento=e.documento, contato=contato, email=e.email_financeiro,
                            telefone=e.telefone, categoria_padrao_id=e.categoria_padrao_id, categoria_padrao_nome=cat,
                            condicao_habitual=e.condicao_habitual, observacoes=e.observacoes, papeis=e.papeis,
-                           ativo=e.ativo, titulos_pagar=n)
+                           ativo=e.ativo, titulos_pagar=n, **endereco_de(e))
 
 
 def _fornecedor(ctx: Ctx, fid: int) -> Empresa:
@@ -504,7 +568,7 @@ def _dados_fornecedor(ctx: Ctx, e: Empresa | None, dados: dict) -> tuple[dict, s
             raise RegraViolada("Categoria padrão não encontrada.")
         if cat.natureza != "despesa":
             raise RegraViolada("A categoria padrão do fornecedor deve ser de despesa.")
-    return valores, contato
+    return normalizar_endereco(valores), contato
 
 
 def _garantir_contato(ctx: Ctx, e: Empresa, contato: str | None, email: str | None, telefone: str | None) -> None:
@@ -514,7 +578,7 @@ def _garantir_contato(ctx: Ctx, e: Empresa, contato: str | None, email: str | No
     ja = ctx.db.scalar(select(Pessoa).where(Pessoa.empresa_id == e.id, func.lower(Pessoa.nome) == nome.lower()))
     if ja is None:
         p = Pessoa(nome=nome, empresa_id=e.id, email=email, telefone=telefone, responsavel_id=ctx.usuario.id,
-                   campos_custom={})
+                   campos_custom={}, usa_endereco_da_empresa=True, **endereco_de(e))
         ctx.db.add(p)
         ctx.db.flush()
         ctx.auditar("pessoa.criar", "pessoa", p.id, descricao=f"{nome} (contato do fornecedor {e.nome})")
@@ -546,6 +610,8 @@ def criar_fornecedor(dados: FornecedorCriar, ctx: Ctx):
         ctx.db.flush()
         a, d = audit.diff(antes, audit.snapshot(e))
         ctx.auditar("empresa.alterar", "empresa", e.id, descricao=f"{e.nome} marcada como fornecedor", antes=a, depois=d)
+        if any(k in d for k in CAMPOS_ENDERECO):
+            _propagar_endereco(ctx, e)
     else:
         if not dados.nome:
             raise RegraViolada("Informe o nome do fornecedor.")
@@ -569,8 +635,17 @@ def ver_fornecedor(fornecedor_id: int, ctx: Ctx):
 def atualizar_fornecedor(fornecedor_id: int, dados: FornecedorAtualizar, ctx: Ctx):
     e = _fornecedor(ctx, fornecedor_id)
     valores, contato = _dados_fornecedor(ctx, e, dados.model_dump(exclude_unset=True))
+    antes = audit.snapshot(e)
+    for k, v in valores.items():
+        setattr(e, k, v)
+    ctx.db.flush()
+    a, d = audit.diff(antes, audit.snapshot(e))
+    if a or d:
+        ctx.auditar("empresa.alterar", "empresa", e.id, descricao=e.nome, antes=a, depois=d)
+    if any(k in d for k in CAMPOS_ENDERECO):
+        _propagar_endereco(ctx, e)
     _garantir_contato(ctx, e, contato, dados.email, dados.telefone)
-    _alterar(ctx, e, valores, "empresa.alterar", "empresa", "Já existe empresa com este nome")
+    _commit(ctx, "Já existe empresa com este nome")
     return _fornecedor_saida(ctx, e)
 
 
@@ -943,6 +1018,205 @@ def restaurar_campo(campo_id: int, ctx: Ctx):
 
 
 ROTULO_USO = {"dashboard": "Dashboard", "automacao": "Automação", "etapa": "Etapa", "registros": "Registros"}
+
+
+# ================================================================================================= consultas públicas
+def _consulta(funcao, *args):
+    """Erros da consulta externa → 404 (não existe) / 502 (provedores fora). Inválido → RegraViolada (400)."""
+    try:
+        return funcao(*args)
+    except consultas.ConsultaNaoEncontrada as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, e.mensagem) from None
+    except consultas.ConsultaIndisponivel as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, e.mensagem) from None
+
+
+@router.get("/consultas/cnpj/{cnpj}", response_model=ConsultaCnpjSaida)
+def consultar_cnpj(cnpj: str, ctx: Ctx):
+    """Dados públicos do CNPJ (BrasilAPI → CNPJá). Nada é gravado; `empresa_existente` avisa de duplicidade."""
+    return _consulta(consultas.consultar_cnpj, cnpj, ctx.db)
+
+
+@router.get("/consultas/cep/{cep}", response_model=ConsultaCepSaida)
+def consultar_cep(cep: str, ctx: Ctx):
+    return _consulta(consultas.consultar_cep, cep)
+
+
+# ================================================================================================= sócios e anexos
+storage.registrar_categoria(CATEGORIA_ANEXOS, "nucleo.cadastros.ver", storage.DOCUMENTOS, 10)
+
+
+def _anexo_saida(a: EmpresaAnexo, nomes: dict[int, str]) -> AnexoSaida:
+    return AnexoSaida(id=a.id, empresa_id=a.empresa_id, nome=a.nome, tipo=a.tipo, mime=a.mime, tamanho=a.tamanho,
+                      enviado_por_nome=nomes.get(a.enviado_por_id), criado_em=a.criado_em, ativo=a.ativo,
+                      url=f"/nucleo/empresas/{a.empresa_id}/anexos/{a.id}/arquivo")
+
+
+def _anexo(ctx: Ctx, empresa_id: int, anexo_id: int) -> EmpresaAnexo:
+    a = ctx.db.get(EmpresaAnexo, anexo_id)
+    if a is None or a.empresa_id != empresa_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Anexo não encontrado.")
+    return a
+
+
+def _salvar_anexo(ctx: Ctx, e: Empresa, nome: str, conteudo: bytes, tipo: str, mime: str | None) -> EmpresaAnexo:
+    try:
+        caminho = storage.salvar(CATEGORIA_ANEXOS, nome, conteudo, subpasta=f"empresa_{e.id}")
+    except storage.ArquivoInvalido as erro:
+        raise RegraViolada(str(erro)) from None
+    a = EmpresaAnexo(empresa_id=e.id, nome=nome[:200], tipo=tipo, tamanho=len(conteudo), caminho=caminho,
+                     mime=(mime or mimetypes.guess_type(nome)[0] or "application/octet-stream")[:100],
+                     enviado_por_id=ctx.usuario.id)
+    ctx.db.add(a)
+    ctx.db.flush()
+    ctx.auditar("empresa_anexo.criar", "empresa", e.id, descricao=f"Anexo “{a.nome}” ({tipo}) em {e.nome}",
+                depois={"anexo_id": a.id, "nome": a.nome, "tipo": tipo, "tamanho": a.tamanho})
+    return a
+
+
+@router.get("/empresas/{empresa_id}/socios", response_model=list[SocioSaida])
+def listar_socios(empresa_id: int, ctx: Ctx):
+    _ou_404(ctx.db.get(Empresa, empresa_id), "Empresa")
+    return ctx.db.scalars(select(EmpresaSocio).where(EmpresaSocio.empresa_id == empresa_id)
+                          .order_by(EmpresaSocio.id)).all()
+
+
+@router.get("/empresas/{empresa_id}/anexos", response_model=list[AnexoSaida])
+def listar_anexos(empresa_id: int, ctx: Ctx, arquivados: bool = False):
+    _ou_404(ctx.db.get(Empresa, empresa_id), "Empresa")
+    q = select(EmpresaAnexo).where(EmpresaAnexo.empresa_id == empresa_id)
+    if not arquivados:
+        q = q.where(EmpresaAnexo.ativo.is_(True))
+    anexos = ctx.db.scalars(q.order_by(EmpresaAnexo.id.desc())).all()
+    nomes = _nomes_usuarios(ctx, (a.enviado_por_id for a in anexos))
+    return [_anexo_saida(a, nomes) for a in anexos]
+
+
+@router.post("/empresas/{empresa_id}/anexos", response_model=AnexoSaida, status_code=201)
+def enviar_anexo(empresa_id: int, ctx: Ctx, arquivo: UploadFile = File(...), tipo: TipoAnexo = Form("documento")):
+    """PDF, imagem, .docx ou .xlsx até 10 MB (conteúdo conferido pela assinatura do arquivo)."""
+    e = _ou_404(ctx.db.get(Empresa, empresa_id), "Empresa")
+    conteudo = arquivo.file.read(10 * 1024 * 1024 + 1)
+    a = _salvar_anexo(ctx, e, arquivo.filename or "arquivo", conteudo, tipo, arquivo.content_type)
+    ctx.db.commit()
+    return _anexo_saida(a, _nomes_usuarios(ctx, [a.enviado_por_id]))
+
+
+@router.get("/empresas/{empresa_id}/anexos/{anexo_id}/arquivo")
+def baixar_anexo(empresa_id: int, anexo_id: int, ctx: Ctx):
+    a = _anexo(ctx, empresa_id, anexo_id)
+    try:
+        conteudo = storage.ler(a.caminho)
+    except (FileNotFoundError, storage.ArquivoInvalido):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Arquivo do anexo não encontrado no armazenamento.") from None
+    return Response(conteudo, media_type=a.mime or "application/octet-stream", headers={
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(a.nome)}", "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox", "Cache-Control": "private, no-store"})
+
+
+@router.delete("/empresas/{empresa_id}/anexos/{anexo_id}", response_model=AnexoSaida)
+def arquivar_anexo(empresa_id: int, anexo_id: int, ctx: Ctx):
+    """Nada se apaga: o anexo é arquivado (some da lista; o arquivo fica guardado)."""
+    a = _anexo(ctx, empresa_id, anexo_id)
+    if a.ativo:
+        a.ativo = False
+        ctx.auditar("empresa_anexo.arquivar", "empresa", empresa_id, descricao=f"Anexo “{a.nome}” arquivado",
+                    antes={"anexo_id": a.id, "ativo": True}, depois={"anexo_id": a.id, "ativo": False})
+        ctx.db.commit()
+    return _anexo_saida(a, _nomes_usuarios(ctx, [a.enviado_por_id]))
+
+
+def _socio_dict(s: EmpresaSocio) -> dict:
+    return {"nome": s.nome, "qualificacao": s.qualificacao, "documento": s.documento,
+            "data_entrada": s.data_entrada.isoformat() if s.data_entrada else None, "faixa_etaria": s.faixa_etaria}
+
+
+@router.post("/empresas/{empresa_id}/cnpj/aplicar", response_model=EmpresaDetalhe)
+def aplicar_cnpj(empresa_id: int, ctx: Ctx):
+    """Consulta o CNPJ da empresa, substitui o quadro societário, preenche só os campos vazios (o endereço novo
+    propaga para as pessoas) e anexa o PDF "Comprovante de consulta CNPJ"."""
+    e = _ou_404(ctx.db.get(Empresa, empresa_id), "Empresa")
+    if not cnpj_valido(e.documento):
+        raise RegraViolada("Informe um CNPJ válido no cadastro da empresa antes de buscar os dados.")
+    dados = _consulta(consultas.consultar_cnpj, e.documento)
+    agora_br = datetime.now(ZoneInfo(settings.fuso))
+
+    antes = audit.snapshot(e)
+    for k, v in preencher_vazios({c: getattr(e, c) for c in CAMPOS_PREENCHIVEIS_CNPJ}, dados).items():
+        setattr(e, k, normalizar_endereco({k: v})[k] if k in CAMPOS_ENDERECO else v)
+    e.documento = dados["documento"]
+    ctx.db.flush()
+    a, d = audit.diff(antes, audit.snapshot(e))
+    if a or d:
+        ctx.auditar("empresa.alterar", "empresa", e.id, descricao=f"{e.nome}: dados completados pelo CNPJ "
+                    f"({dados['fonte']})", antes=a, depois=d)
+    if any(k in d for k in CAMPOS_ENDERECO):
+        _propagar_endereco(ctx, e)
+
+    velhos = ctx.db.scalars(select(EmpresaSocio).where(EmpresaSocio.empresa_id == e.id).order_by(EmpresaSocio.id)).all()
+    socios_antes = [_socio_dict(s) for s in velhos]
+    for s in velhos:
+        ctx.db.delete(s)
+    novos = []
+    for s in dados.get("socios") or []:
+        entrada = s.get("data_entrada")
+        novos.append(EmpresaSocio(empresa_id=e.id, nome=(s.get("nome") or "Sócio sem nome")[:200],
+                                  qualificacao=(s.get("qualificacao") or None) and s["qualificacao"][:120],
+                                  documento=(s.get("documento") or None) and s["documento"][:18],
+                                  data_entrada=date.fromisoformat(entrada) if entrada else None,
+                                  faixa_etaria=(s.get("faixa_etaria") or None) and s["faixa_etaria"][:40]))
+    ctx.db.add_all(novos)
+    ctx.db.flush()
+    socios_depois = [_socio_dict(s) for s in novos]
+    if socios_antes != socios_depois:
+        ctx.auditar("empresa.socios", "empresa", e.id, descricao=f"Quadro societário de {e.nome} pelo CNPJ "
+                    f"({len(novos)} sócio(s))", antes={"socios": socios_antes}, depois={"socios": socios_depois})
+
+    pdf = gerar_comprovante_cnpj(dados, agora_br)
+    _salvar_anexo(ctx, e, f"Comprovante CNPJ {agora_br:%d-%m-%Y}.pdf", pdf, "cartao_cnpj", "application/pdf")
+    _commit(ctx, "Não foi possível salvar os dados do CNPJ.")
+    return _empresa_completa(ctx, e, EmpresaDetalhe)
+
+
+# ================================================================================================= planilhas de migração
+def _objeto_planilha(objeto: str) -> str:
+    if objeto not in planilhas.OBJETOS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Planilha não encontrada. Use: " +
+                            ", ".join(planilhas.OBJETOS) + ".")
+    return objeto
+
+
+@router.get("/planilhas/{objeto}/modelo")
+def baixar_modelo_planilha(objeto: str, ctx: Ctx):
+    """Modelo .xlsx: aba "Dados" (cabeçalho + linha EXEMPLO + listas de opção) e aba "Instruções"."""
+    objeto = _objeto_planilha(objeto)
+    return Response(planilhas.gerar_modelo(ctx.db, objeto), media_type=planilhas.TIPO_XLSX,
+                    headers={"Content-Disposition": f'attachment; filename="modelo-{objeto}.xlsx"',
+                             "Cache-Control": "no-store"})
+
+
+@router.post("/planilhas/{objeto}/importar", response_model=ImportacaoSaida)
+def importar_planilha(objeto: str, ctx: Ctx, arquivo: UploadFile = File(...), simular: bool = True):
+    """`simular=true` (padrão) não grava. `simular=false` é tudo ou nada: com qualquer erro, 400 com a mesma lista e
+    nada gravado."""
+    objeto = _objeto_planilha(objeto)
+    conteudo = arquivo.file.read(planilhas.LIMITE_BYTES + 1)
+    rel = planilhas.importar(ctx.db, objeto, arquivo.filename, conteudo, usuario_id=ctx.usuario.id,
+                             auditar=ctx.auditar)
+    corpo = rel.como_dict()
+    if simular or rel.erros:
+        ctx.db.rollback()
+        if rel.erros and not simular:
+            return JSONResponse(status_code=400, content={
+                "detail": f"A planilha tem {len(rel.erros)} erro(s). Corrija e envie de novo: nada foi gravado.",
+                **corpo})
+        return corpo
+    ctx.auditar(f"importacao.{objeto}", "importacao", None,
+                descricao=f"Planilha “{arquivo.filename or objeto}”: {rel.criar} criado(s), {rel.atualizar} "
+                          f"atualizado(s), {rel.ignorar} sem mudança",
+                depois={"total": rel.total, "criar": rel.criar, "atualizar": rel.atualizar, "ignorar": rel.ignorar})
+    _commit(ctx, "Outra pessoa gravou dados iguais ao mesmo tempo. Simule de novo e confirme.")
+    return corpo
 
 
 # ================================================================================================= busca global

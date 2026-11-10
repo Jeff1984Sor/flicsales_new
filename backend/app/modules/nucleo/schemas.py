@@ -35,8 +35,31 @@ class Saida(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# ------------------------------------------------------------------------------------------------- endereço
+class _EnderecoCampos(Entrada):
+    """Endereço estruturado (CEP "00000-000" ou só dígitos; UF em sigla). Normalizado em app.domain.cadastro."""
+
+    cep: str | None = Field(default=None, max_length=9)
+    logradouro: str | None = Field(default=None, max_length=200)
+    numero: str | None = Field(default=None, max_length=20)
+    complemento: str | None = Field(default=None, max_length=100)
+    bairro: str | None = Field(default=None, max_length=100)
+    cidade: str | None = Field(default=None, max_length=100)
+    uf: str | None = Field(default=None, max_length=2)
+
+
+class _EnderecoSaida(BaseModel):
+    cep: str | None = None
+    logradouro: str | None = None
+    numero: str | None = None
+    complemento: str | None = None
+    bairro: str | None = None
+    cidade: str | None = None
+    uf: str | None = None
+
+
 # ------------------------------------------------------------------------------------------------- empresa
-class _EmpresaCampos(Entrada):
+class _EmpresaCampos(_EnderecoCampos):
     documento: str | None = Field(default=None, max_length=18)
     nome_fantasia: str | None = Field(default=None, max_length=200)
     segmento: str | None = Field(default=None, max_length=100)
@@ -63,7 +86,7 @@ class EmpresaAtualizar(_EmpresaCampos):
     ativo: bool | None = None
 
 
-class EmpresaSaida(Saida):
+class EmpresaSaida(_EnderecoSaida, Saida):
     id: int
     nome: str
     documento: str | None
@@ -130,8 +153,11 @@ class Duplicidade(BaseModel):
 
 
 # ------------------------------------------------------------------------------------------------- pessoa
-class _PessoaCampos(Entrada):
+class _PessoaCampos(_EnderecoCampos):
     empresa_id: int | None = None
+    # ligada (padrão): o endereço é o da empresa e acompanha as mudanças dela. Editar o endereço sem mandar a marca
+    # desliga a marca.
+    usa_endereco_da_empresa: bool | None = None
     cargo: str | None = Field(default=None, max_length=120)
     email: str | None = Field(default=None, max_length=200)
     telefone: str | None = Field(default=None, max_length=30)
@@ -150,7 +176,7 @@ class PessoaAtualizar(_PessoaCampos):
     ativo: bool | None = None
 
 
-class PessoaSaida(Saida):
+class PessoaSaida(_EnderecoSaida, Saida):
     id: int
     nome: str
     empresa_id: int | None
@@ -163,6 +189,7 @@ class PessoaSaida(Saida):
     canal_preferido: str | None
     observacoes: str | None
     campos_custom: dict[str, Any]
+    usa_endereco_da_empresa: bool = True
     ativo: bool
 
 
@@ -199,7 +226,7 @@ class ProdutoSaida(Saida):
 
 
 # ------------------------------------------------------------------------------------------------- fornecedor
-class _FornecedorCampos(Entrada):
+class _FornecedorCampos(_EnderecoCampos):
     documento: str | None = Field(default=None, max_length=18)
     contato: str | None = Field(default=None, max_length=200)
     email: str | None = Field(default=None, max_length=200)
@@ -221,7 +248,7 @@ class FornecedorAtualizar(_FornecedorCampos):
     ativo: bool | None = None
 
 
-class FornecedorSaida(BaseModel):
+class FornecedorSaida(_EnderecoSaida):
     id: int
     nome: str
     documento: str | None
@@ -369,6 +396,94 @@ class EtapaOpcao(BaseModel):
     id: int
     nome: str
     funil_nome: str
+
+
+# ------------------------------------------------------------------------------------------------- consultas públicas
+class EmpresaExistente(BaseModel):
+    id: int
+    nome: str
+
+
+class ConsultaCnpjSaida(_EnderecoSaida):
+    documento: str
+    nome: str | None = None
+    nome_fantasia: str | None = None
+    segmento: str | None = None
+    porte: Literal["ME", "EPP", "Demais"] | None = None
+    situacao: str | None = None
+    abertura: str | None = None
+    telefone: str | None = None
+    email_financeiro: str | None = None
+    fonte: str
+    socios: list["SocioConsulta"] = []
+    cnae_principal: str | None = None
+    cnaes_secundarios: list[str] = []
+    natureza_juridica: str | None = None
+    capital_social: Decimal | None = None
+    empresa_existente: EmpresaExistente | None = None
+
+
+class SocioConsulta(BaseModel):
+    nome: str
+    qualificacao: str | None = None
+    documento: str | None = None
+    data_entrada: date | None = None
+    faixa_etaria: str | None = None
+
+
+class SocioSaida(SocioConsulta, Saida):
+    id: int
+    empresa_id: int
+
+
+TipoAnexo = Literal["cartao_cnpj", "contrato", "documento", "outro"]
+
+
+class AnexoSaida(BaseModel):
+    id: int
+    empresa_id: int
+    nome: str
+    tipo: str
+    mime: str | None
+    tamanho: int
+    enviado_por_nome: str | None = None
+    criado_em: datetime
+    ativo: bool
+    url: str  # caminho da API (sem /api): GET → download, exige login e nucleo.cadastros.ver
+
+
+ConsultaCnpjSaida.model_rebuild()
+
+
+class ConsultaCepSaida(BaseModel):
+    cep: str
+    logradouro: str | None = None
+    bairro: str | None = None
+    cidade: str | None = None
+    uf: str | None = None
+    fonte: str
+
+
+# ------------------------------------------------------------------------------------------------- planilhas
+class ErroPlanilha(BaseModel):
+    linha: int
+    coluna: str | None = None
+    mensagem: str
+
+
+class PreviaPlanilha(BaseModel):
+    linha: int
+    acao: Literal["criar", "atualizar", "ignorar"]
+    nome: str
+
+
+class ImportacaoSaida(BaseModel):
+    total: int
+    criar: int
+    atualizar: int
+    ignorar: int
+    erros: list[ErroPlanilha]
+    previa: list[PreviaPlanilha]
 
 
 # ------------------------------------------------------------------------------------------------- busca global

@@ -17,6 +17,13 @@
  *  - TelaEmpresas, TelaPessoas, TelaProdutos, TelaFornecedores, TelaCategorias, TelaCentrosCusto, TelaContas,
  *    TelaCampos, TelaCadastrosMestres, TelaArquitetura, QualidadeDados
  *
+ * Enriquecimento e migração
+ *  - BlocoEndereco (+ enderecoDe, ENDERECO_VAZIO)   endereço estruturado com busca de CEP
+ *  - CampoCnpj (+ preencherVazios)                   "Buscar CNPJ" que preenche só campos vazios
+ *  - EnriquecerIA                                    "✧ Enriquecer com IA" para qualquer drawer de cadastro
+ *  - BotaoImportarPlanilha, DrawerImportarPlanilha   migração por planilha (.xlsx/.csv)
+ *  - QuadroSocietario, AnexosEmpresa, aplicarCnpj    seções do drawer de empresa/fornecedor
+ *
  * Utilitários: paraEnvio, alterados, txt, CHIPS_SITUACAO, useInvalidarCadastros, useUsuariosOpcoes, useIdDaUrl,
  * RodapeFormulario.
  */
@@ -36,7 +43,13 @@ export {
   useInvalidarCadastros,
   useUsuariosOpcoes,
 } from "./comum";
+export { CampoCnpj, preencherVazios } from "./campo-cnpj";
+export { dadosParaIA, mascaraCep, mascaraDocumento, mesclarSugestoes, rotaAusente } from "./consultas";
 export { ChipsPapeis, DrawerEmpresa } from "./drawer-empresa";
+export { AnexosEmpresa, QuadroSocietario, aplicarCnpj } from "./empresa-extras";
+export { BlocoEndereco, ENDERECO_VAZIO, enderecoDe, type ValorEndereco } from "./endereco";
+export { EnriquecerIA } from "./enriquecer-ia";
+export { BotaoImportarPlanilha, DrawerImportarPlanilha, permissaoImportar } from "./importar-planilha";
 export { DrawerPessoa } from "./drawer-pessoa";
 export { QualidadeDados } from "./qualidade-dados";
 export { SeletorEmpresa, type EmpresaEscolhida } from "./seletor-empresa";

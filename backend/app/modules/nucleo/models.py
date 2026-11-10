@@ -36,7 +36,20 @@ from app.domain.cadastro import PAPEIS_EMPRESA, chave_de_nome
 from app.modules.base import Dinheiro
 
 
-class Empresa(Base, Timestamped):
+class EnderecoMixin:
+    """Endereço estruturado (migração 0003). CEP "00000-000", UF em sigla. O antigo `empresa.endereco` (texto livre)
+    continua existindo; as telas novas usam estes campos (app.domain.cadastro.CAMPOS_ENDERECO)."""
+
+    cep: Mapped[str | None] = mapped_column(String(9))
+    logradouro: Mapped[str | None] = mapped_column(String(200))
+    numero: Mapped[str | None] = mapped_column(String(20))
+    complemento: Mapped[str | None] = mapped_column(String(100))
+    bairro: Mapped[str | None] = mapped_column(String(100))
+    cidade: Mapped[str | None] = mapped_column(String(100))
+    uf: Mapped[str | None] = mapped_column(String(2))
+
+
+class Empresa(EnderecoMixin, Base, Timestamped):
     __tablename__ = "empresa"
     __table_args__ = (
         Index("ix_empresa_papel_cliente", "papel_cliente"),
@@ -83,7 +96,7 @@ def _chave_da_empresa(_mapper, _conn, alvo: Empresa) -> None:
     alvo.nome_chave = chave_de_nome(alvo.nome)
 
 
-class Pessoa(Base, Timestamped):
+class Pessoa(EnderecoMixin, Base, Timestamped):
     __tablename__ = "pessoa"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -97,6 +110,8 @@ class Pessoa(Base, Timestamped):
     observacoes: Mapped[str | None] = mapped_column(Text)
     campos_custom: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    # ligada: o endereço da pessoa acompanha o da empresa (app.domain.cadastro.resolver_endereco_pessoa/propagar_endereco)
+    usa_endereco_da_empresa: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
 
 
 class Produto(Base, Timestamped):
@@ -174,3 +189,36 @@ class CampoCustom(Base, Timestamped):
     exigido_na_etapa_id: Mapped[int | None] = mapped_column(ForeignKey("etapa.id"))
     ordem: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     arquivado: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+
+
+class EmpresaSocio(Base, Timestamped):
+    """Quadro societário vindo da consulta pública do CNPJ (substituído inteiro a cada "aplicar CNPJ", com auditoria
+    antes→depois). CPF do sócio vem mascarado da Receita: guardado como veio."""
+
+    __tablename__ = "empresa_socio"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresa.id"), index=True)
+    nome: Mapped[str] = mapped_column(String(200))
+    qualificacao: Mapped[str | None] = mapped_column(String(120))
+    documento: Mapped[str | None] = mapped_column(String(18))
+    data_entrada: Mapped[date | None] = mapped_column(Date)
+    faixa_etaria: Mapped[str | None] = mapped_column(String(40))
+
+
+class EmpresaAnexo(Base, Timestamped):
+    """Arquivo anexado à empresa (comprovante de consulta CNPJ, contrato…). Arquivo em `app/core/storage.py`
+    (categoria "empresas_anexos"); nunca apagado: arquivar = `ativo` false."""
+
+    __tablename__ = "empresa_anexo"
+    __table_args__ = (CheckConstraint("tipo IN ('cartao_cnpj', 'contrato', 'documento', 'outro')", name="tipo"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresa.id"), index=True)
+    nome: Mapped[str] = mapped_column(String(200))
+    tipo: Mapped[str] = mapped_column(String(30))
+    mime: Mapped[str | None] = mapped_column(String(100))
+    tamanho: Mapped[int] = mapped_column(Integer, default=0)
+    caminho: Mapped[str] = mapped_column(String(300))
+    enviado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")

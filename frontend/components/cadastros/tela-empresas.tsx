@@ -31,6 +31,7 @@ import { PAPEIS, ROTULO_PAPEL, type Empresa, type Papel, type Situacao } from "@
 import { CHIPS_SITUACAO } from "./comum";
 import { DrawerEmpresa } from "./drawer-empresa";
 import { DrawerPessoa } from "./drawer-pessoa";
+import { BotaoImportarPlanilha } from "./importar-planilha";
 
 const POR_PAGINA = 50;
 
@@ -117,6 +118,7 @@ export function TelaEmpresas({ embutida, papelPadrao = "", idInicial = null }: {
         <PageHeader
           titulo="Empresas e clientes"
           descricao="Base compartilhada. Comercial e Financeiro reutilizam os mesmos registros."
+          acoes={<BotaoImportarPlanilha objeto="empresas" />}
           acao={podeEditar && <Button onClick={() => setNova(true)}>+ Empresa</Button>}
         />
       )}
@@ -152,6 +154,7 @@ export function TelaEmpresas({ embutida, papelPadrao = "", idInicial = null }: {
             ))}
           </NativeSelect>
         </div>
+        {embutida && <BotaoImportarPlanilha objeto="empresas" />}
       </BarraFiltros>
       <DataTable
         colunas={colunas}

@@ -4,7 +4,8 @@
  * DrawerEmpresa — cadastro/detalhe da empresa no painel lateral (protótipo `newCompany`/`saveCompanyOps` e
  * `companyDetail`/`updateCompanyOps`). Nova: "Cadastro de empresa" (o nome basta). Existente: relacionamentos
  * (oportunidades, recebíveis), contatos com "Novo contato", formulário completo, "Analisar cadastro" e Inativar/Reativar.
- * Renomear atualiza todos os módulos (os vínculos são por id).
+ * Renomear atualiza todos os módulos (os vínculos são por id). CNPJ com "Buscar CNPJ" (preenche só campos vazios e avisa
+ * se o CNPJ já existe), endereço estruturado com busca de CEP e "✧ Enriquecer com IA".
  *
  * Props:
  *  - `aberto: boolean`  `onFechar: () => void`
@@ -27,15 +28,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { cnpjValido } from "@/lib/validacao";
 import { useAuth } from "@/lib/auth";
-import { PAPEIS, type EmpresaDetalhe, type EmpresaEntrada, type Papel, type ValoresCampos } from "@/lib/tipos-nucleo";
+import { PAPEIS, type ConsultaCnpj, type EmpresaDetalhe, type EmpresaEntrada, type Papel, type ValoresCampos } from "@/lib/tipos-nucleo";
 import { cn } from "@/lib/utils";
 
+import { CampoCnpj, preencherVazios } from "./campo-cnpj";
 import { CamposPersonalizados } from "./campos-personalizados";
+import { AnexosEmpresa, QuadroSocietario, aplicarCnpj } from "./empresa-extras";
+import { dadosParaIA, mesclarSugestoes } from "./consultas";
+import { BlocoEndereco, enderecoDe, type ValorEndereco } from "./endereco";
+import { EnriquecerIA } from "./enriquecer-ia";
 import { RodapeFormulario, SeletorResponsavel, alterados, paraEnvio, txt, useInvalidarCadastros } from "./comum";
 import { DrawerPessoa } from "./drawer-pessoa";
 
-interface FormEmpresa {
+interface FormEmpresa extends ValorEndereco {
   nome: string;
   documento: string;
   nome_fantasia: string;
@@ -44,7 +51,6 @@ interface FormEmpresa {
   site: string;
   email_financeiro: string;
   telefone: string;
-  endereco: string;
   responsavel_id: number | null;
   papeis: Papel[];
   origem: string;
@@ -62,7 +68,7 @@ function formDe(e: EmpresaDetalhe | undefined, nome = "", papeis: Papel[] = ["pr
     site: txt(e?.site),
     email_financeiro: txt(e?.email_financeiro),
     telefone: txt(e?.telefone),
-    endereco: txt(e?.endereco),
+    ...enderecoDe(e),
     responsavel_id: e?.responsavel_id ?? null,
     papeis: e?.papeis ?? papeis,
     origem: txt(e?.origem),
@@ -97,22 +103,52 @@ export function ChipsPapeis({ valor, onChange, disabled }: { valor: Papel[]; onC
   );
 }
 
+const ROTULOS: Record<string, string> = {
+  nome: "Nome / razão social",
+  documento: "CNPJ / CPF",
+  nome_fantasia: "Nome fantasia",
+  segmento: "Segmento",
+  porte: "Porte",
+  site: "Site",
+  email_financeiro: "E-mail financeiro",
+  telefone: "Telefone",
+  cep: "CEP",
+  logradouro: "Logradouro",
+  numero: "Número",
+  complemento: "Complemento",
+  bairro: "Bairro",
+  cidade: "Cidade",
+  uf: "UF",
+  origem: "Origem",
+  observacoes: "Observações",
+};
+
+/** Campos do formulário que o CNPJ pode preencher (só se estiverem vazios). */
+function mapaCnpj(r: ConsultaCnpj): Partial<Record<keyof FormEmpresa, [string, string | null | undefined]>> {
+  const m: Partial<Record<keyof FormEmpresa, [string, string | null | undefined]>> = {};
+  const campos = ["nome", "nome_fantasia", "segmento", "porte", "telefone", "email_financeiro", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf"] as const;
+  for (const k of campos) m[k] = [ROTULOS[k], r[k]];
+  return m;
+}
+
 function Formulario({
   inicial,
   empresa,
   formId,
   onSalvar,
+  onAbrirExistente,
   desabilitado,
 }: {
   inicial: FormEmpresa;
   empresa?: EmpresaDetalhe;
   formId: string;
   onSalvar: (dados: EmpresaEntrada) => void;
+  onAbrirExistente: (id: number) => void;
   desabilitado?: boolean;
 }) {
   const [f, setF] = useState(inicial);
   const set = <K extends keyof FormEmpresa>(k: K, v: FormEmpresa[K]) => setF((x) => ({ ...x, [k]: v }));
-  const campo = (k: Exclude<keyof FormEmpresa, "responsavel_id" | "papeis" | "campos_custom">) => ({
+  const campo = (k: "nome" | "nome_fantasia" | "segmento" | "porte" | "site" | "email_financeiro" | "telefone" | "origem") => ({
     value: f[k],
     disabled: desabilitado,
     className: "h-9",
@@ -129,13 +165,31 @@ function Formulario({
         onSalvar(empresa ? alterados<EmpresaEntrada>(paraEnvio(inicial) as EmpresaEntrada, atual) : atual);
       }}
     >
+      <EnriquecerIA
+        objeto="empresa"
+        registroId={empresa?.id ?? null}
+        dados={dadosParaIA(f)}
+        rotulos={ROTULOS}
+        disabled={desabilitado}
+        onAplicar={(v) => setF((x) => mesclarSugestoes(x, v))}
+      />
       <Field label="Nome / razão social" obrigatorio>
         <Input {...campo("nome")} required autoFocus={!empresa} />
       </Field>
+      <CampoCnpj
+        valor={f.documento}
+        onChange={(v) => set("documento", v)}
+        disabled={desabilitado}
+        automatico={!empresa}
+        registroId={empresa?.id ?? null}
+        onAbrirExistente={onAbrirExistente}
+        onResultado={(r) => {
+          const { form, preenchidos } = preencherVazios(f, mapaCnpj(r));
+          setF(form);
+          return preenchidos;
+        }}
+      />
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="CNPJ / CPF">
-          <Input {...campo("documento")} />
-        </Field>
         <Field label="Nome fantasia">
           <Input {...campo("nome_fantasia")} />
         </Field>
@@ -158,9 +212,16 @@ function Formulario({
           <SeletorResponsavel valor={f.responsavel_id} onChange={(v) => set("responsavel_id", v)} disabled={desabilitado} />
         </Field>
       </div>
-      <Field label="Endereço">
-        <Input {...campo("endereco")} />
-      </Field>
+      <BlocoEndereco
+        valor={f}
+        disabled={desabilitado}
+        onChange={(p) => setF((x) => ({ ...x, ...p }))}
+        dica={
+          empresa?.endereco && !f.logradouro
+            ? `Endereço anterior (texto livre): ${empresa.endereco}`
+            : "Contatos que usam o endereço da empresa recebem a mudança."
+        }
+      />
       <Field label="Papéis">
         <ChipsPapeis valor={f.papeis} onChange={(v) => set("papeis", v)} disabled={desabilitado} />
       </Field>
@@ -177,8 +238,8 @@ function Formulario({
 
 export function DrawerEmpresa({
   aberto,
-  onFechar,
-  empresaId,
+  onFechar: onFecharProp,
+  empresaId: empresaIdProp,
   nomeInicial,
   papeisIniciais,
   onSalva,
@@ -195,6 +256,13 @@ export function DrawerEmpresa({
   const invalidar = useInvalidarCadastros();
   const [novoContato, setNovoContato] = useState(false);
   const [confirmar, setConfirmar] = useState(false);
+  // "Abrir cadastro existente" (CNPJ já cadastrado): o drawer passa a mostrar aquela empresa
+  const [trocadaPara, setTrocadaPara] = useState<number | null>(null);
+  const empresaId = trocadaPara ?? empresaIdProp;
+  const onFechar = () => {
+    setTrocadaPara(null);
+    onFecharProp();
+  };
   const formId = `f-empresa-${empresaId ?? "nova"}`;
 
   const detalhe = useQuery({
@@ -204,9 +272,22 @@ export function DrawerEmpresa({
   });
   const e = detalhe.data;
 
+  // remonta o formulário quando "Atualizar pela Receita" preenche campos no servidor
+  const [versao, setVersao] = useState(0);
   const salvar = useMutation({
-    mutationFn: (dados: EmpresaEntrada) =>
-      empresaId == null ? api.post<EmpresaDetalhe>("/nucleo/empresas", dados) : api.patch<EmpresaDetalhe>(`/nucleo/empresas/${empresaId}`, dados),
+    mutationFn: async (dados: EmpresaEntrada) => {
+      if (empresaId != null) return api.patch<EmpresaDetalhe>(`/nucleo/empresas/${empresaId}`, dados);
+      const criada = await api.post<EmpresaDetalhe>("/nucleo/empresas", dados);
+      // empresa nova com CNPJ: quadro societário, campos vazios e comprovante vêm da Receita logo depois de salvar
+      if (cnpjValido(criada.documento)) {
+        try {
+          await aplicarCnpj(criada.id);
+        } catch {
+          notificar.info("Empresa salva. Os dados da Receita podem ser trazidos depois em “Atualizar pela Receita”.");
+        }
+      }
+      return criada;
+    },
     onSuccess: (r) => {
       invalidar("empresas");
       notificar.sucesso(empresaId == null ? "Empresa disponível nos três módulos" : "Cadastro e vínculos atualizados");
@@ -305,11 +386,12 @@ export function DrawerEmpresa({
         )}
         {pronto && (
           <Formulario
-            key={`${empresaId ?? "nova"}-${e?.criado_em ?? ""}-${nomeInicial ?? ""}`}
+            key={`${empresaId ?? "nova"}-${e?.criado_em ?? ""}-${nomeInicial ?? ""}-${versao}`}
             formId={formId}
             empresa={e}
             inicial={formDe(e, nomeInicial, papeisIniciais)}
             desabilitado={!podeEditar}
+            onAbrirExistente={(id) => setTrocadaPara(id)}
             onSalvar={(d) => {
               if (empresaId != null && Object.keys(d).length === 0) {
                 notificar("Nada mudou.");
@@ -318,6 +400,12 @@ export function DrawerEmpresa({
               salvar.mutate(d);
             }}
           />
+        )}
+        {e && (
+          <div className="mt-8 flex flex-col gap-6 border-t border-line pt-6">
+            <QuadroSocietario empresaId={e.id} documento={e.documento} podeEditar={podeEditar} onAtualizado={() => setVersao((v) => v + 1)} />
+            <AnexosEmpresa empresaId={e.id} podeEditar={podeEditar} />
+          </div>
         )}
       </Drawer>
       {e && (

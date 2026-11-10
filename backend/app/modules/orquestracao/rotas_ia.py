@@ -13,6 +13,7 @@ from app.domain import RegraViolada
 from app.domain.atividade import validar_atividade
 from app.modules.comercial.models import Atividade, Oportunidade
 from app.modules.nucleo.models import Empresa
+from app.modules.orquestracao.ia import enriquecer as enriq
 from app.modules.orquestracao.ia import gateway, servico
 from app.modules.orquestracao.ia.formato import TIPOS_ACAO_PERMITIDOS
 from app.modules.orquestracao.models import IaConversa, IaMensagem
@@ -22,6 +23,8 @@ from app.modules.orquestracao.schemas import (
     AnaliseOut,
     ConversaOut,
     CriarAtividadePayload,
+    EnriquecerIn,
+    EnriquecerOut,
     PerguntaIn,
     RespostaOut,
 )
@@ -48,6 +51,14 @@ def perguntar(dados: PerguntaIn, ctx: Ctx):
     registro = (dados.registro.tipo, dados.registro.id) if dados.registro else None
     return servico.perguntar(ctx, pergunta=dados.pergunta, escopo=dados.escopo, modulo=dados.modulo, tela=dados.tela,
                              registro=registro, conversa_id=dados.conversa_id, hoje=hoje())
+
+
+@router.post("/ia/enriquecer", response_model=EnriquecerOut)
+def enriquecer(dados: EnriquecerIn, ctx: Ctx):
+    """Sugestões por campo para um cadastro (nada é gravado). Exige `orquestracao.ia.ver` + `ver` do cadastro do objeto.
+    Sem IA: sugestões só das consultas públicas (CNPJ/CEP), `origem: "regras"`. Contrato: docs/contrato-enriquecimento.md §3."""
+    return enriq.enriquecer(ctx, objeto=dados.objeto, registro_id=dados.registro_id, dados=dados.dados,
+                            instrucao=dados.instrucao, texto_apoio=dados.texto_apoio)
 
 
 @router.get("/ia/conversas", response_model=list[ConversaOut])
