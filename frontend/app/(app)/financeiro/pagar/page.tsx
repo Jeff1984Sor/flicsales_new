@@ -1,6 +1,13 @@
-import { EmConstrucao } from "@/components/flic/em-construcao";
+"use client";
 
-// Provisória (fundação). O módulo dono substitui esta página pela tela real do protótipo.
+import { Suspense } from "react";
+
+import { TelaTitulos } from "@/components/financeiro/tela-titulos";
+
 export default function FinanceiroPagarPage() {
-  return <EmConstrucao titulo="A pagar" descricao="Lançamentos, vencimentos, baixas, histórico e responsáveis." />;
+  return (
+    <Suspense>
+      <TelaTitulos direcao="pagar" />
+    </Suspense>
+  );
 }
