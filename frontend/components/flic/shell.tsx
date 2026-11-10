@@ -4,7 +4,7 @@
  * AppShell — casca do FlicSales OS, fiel ao protótipo:
  *  - Topo branco 73px: logo `flic`+`sales` `/ OS` · abas Comercial · Financeiro · Núcleo · busca global · ✧ IA unificada · avatar
  *  - Lateral escura 232px: `WORKSPACE / <MÓDULO>`, grupos e itens (ativo azul com marcador turquesa), rodapé com lema,
- *    "● Ambiente de demonstração" (fora de prod) e "↗ Arquitetura e escopo"
+ *    "● Ambiente de demonstração" (fora de prod)
  *  - Breadcrumb `Workspace / Módulo / Tela` + data de hoje
  *  - Atalhos: Alt+N → evento `flic:novo` (cada tela decide) · `/` → busca · Esc → fecha o drawer (no próprio Drawer)
  *  - A aba de módulo lembra a última tela visitada naquele módulo (localStorage)
@@ -267,10 +267,6 @@ function Lateral({ modulo }: { modulo: Modulo }) {
             <span className="text-accent">●</span> Ambiente de demonstração
           </>
         )}
-        <br />
-        <Link href="/nucleo/arquitetura" className="mt-1 inline-block text-sidebar-foreground hover:text-white">
-          ↗ Arquitetura e escopo
-        </Link>
       </div>
     </aside>
   );
