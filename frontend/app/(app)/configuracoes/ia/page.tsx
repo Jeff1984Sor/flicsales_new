@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Save, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Field, NativeSelect, SwitchRow } from "@/components/flic/form";
@@ -17,18 +17,34 @@ import type { ConfigIAOut } from "@/lib/types";
 const AVISO =
   "Os textos enviados à IA (melhoria de evoluções, preenchimento de cadastros) vão ao provedor escolhido. Use uma conta empresarial com retenção de dados desligada e não envie mais do que o necessário.";
 
+function useDebounce<T>(valor: T, ms: number): T {
+  const [atual, setAtual] = useState(valor);
+  useEffect(() => {
+    const t = setTimeout(() => setAtual(valor), ms);
+    return () => clearTimeout(t);
+  }, [valor, ms]);
+  return atual;
+}
+
 function Formulario({ cfg }: { cfg: ConfigIAOut }) {
   const qc = useQueryClient();
   const [ativo, setAtivo] = useState(cfg.ativo);
   const [provedor, setProvedor] = useState(cfg.provedor);
   const [modelo, setModelo] = useState(cfg.modelo ?? "");
   const [chave, setChave] = useState("");
+  // chave digitada (ainda não salva) ou a salva do mesmo provedor; espera a digitação parar antes de consultar
+  const chaveLimpa = useDebounce(chave.trim(), 600);
+  const temChave = chaveLimpa.length >= 20 || (cfg.chave_definida && provedor === cfg.provedor);
   const lista = useQuery({
-    queryKey: ["config-ia-modelos", cfg.provedor, cfg.chave_final],
-    queryFn: () => api.get<string[]>("/config/ia/modelos"),
-    enabled: cfg.chave_definida && provedor === cfg.provedor,
+    queryKey: ["config-ia-modelos", provedor, chaveLimpa || cfg.chave_final],
+    queryFn: () => api.post<string[]>("/config/ia/modelos", { provedor, chave: chaveLimpa || null }),
+    enabled: temChave,
     retry: false,
+    staleTime: 5 * 60_000,
+    meta: { silencioso: true },
   });
+  const modelos = lista.data ?? [];
+  const usarLista = modelos.length > 0;
   const salvar = useMutation({
     mutationFn: () => api.put<ConfigIAOut>("/config/ia", { ativo, provedor, modelo: modelo || null, chave: chave || null }),
     onSuccess: (novo) => {
@@ -51,7 +67,7 @@ function Formulario({ cfg }: { cfg: ConfigIAOut }) {
       </SwitchRow>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Provedor">
-          <NativeSelect value={provedor} onChange={(e) => setProvedor(e.target.value as ConfigIAOut["provedor"])}>
+          <NativeSelect value={provedor} onChange={(e) => (setProvedor(e.target.value as ConfigIAOut["provedor"]), setModelo(""))}>
             {Object.entries(cfg.provedores).map(([id, nome]) => (
               <option key={id} value={id}>
                 {nome}
@@ -62,24 +78,32 @@ function Formulario({ cfg }: { cfg: ConfigIAOut }) {
         <Field
           label="Modelo"
           dica={
-            lista.isError
-              ? `${(lista.error as Error).message} Você também pode digitar o nome (ex.: gpt-4o-mini, gemini-2.0-flash).`
-              : lista.data
-                ? "Escolha na lista ou digite outro nome."
-                : "Salve a chave para listar os modelos, ou digite o nome (ex.: gpt-4o-mini, gemini-2.0-flash)."
+            lista.isFetching
+              ? "Buscando os modelos no provedor…"
+              : lista.isError
+                ? `${(lista.error as Error).message} Você também pode digitar o nome (ex.: gpt-4o-mini).`
+                : usarLista
+                  ? `${modelos.length} modelos disponíveis para esta chave.`
+                  : "Cole a chave abaixo e os modelos aparecem aqui."
           }
         >
-          <Input
-            list="modelos-ia"
-            value={modelo}
-            onChange={(e) => setModelo(e.target.value)}
-            placeholder={lista.isLoading ? "carregando modelos…" : "nome do modelo"}
-          />
-          <datalist id="modelos-ia">
-            {(lista.data ?? []).map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
+          {usarLista ? (
+            <NativeSelect value={modelo} onChange={(e) => setModelo(e.target.value)}>
+              <option value="">Escolha o modelo</option>
+              {modelo && !modelos.includes(modelo) && <option value={modelo}>{modelo}</option>}
+              {modelos.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </NativeSelect>
+          ) : (
+            <Input
+              value={modelo}
+              onChange={(e) => setModelo(e.target.value)}
+              placeholder={lista.isFetching ? "carregando modelos…" : "nome do modelo"}
+            />
+          )}
         </Field>
       </div>
       <Field

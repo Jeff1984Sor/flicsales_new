@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from sqlalchemy import func, select
+from pydantic import BaseModel, Field
 
 from app.core import audit, ia, perfis, segredos, storage
 from app.core import auth_service as svc
@@ -382,6 +383,29 @@ def modelos_ia(ctx: Ctx, provedor: str | None = None):
         raise HTTPException(400, "Salve a chave deste provedor primeiro para listar os modelos.")
     try:
         return ia.listar_modelos(escolhido, segredos.decifrar_texto(cfg.chave_cifrada))
+    except ia.IAIndisponivel as e:
+        raise HTTPException(502, str(e)) from e
+
+
+class ModelosIAIn(BaseModel):
+    provedor: str
+    chave: str | None = Field(None, max_length=500)
+
+
+@router.post("/ia/modelos", response_model=list[str])
+def modelos_ia_com_chave(dados: ModelosIAIn, ctx: Ctx):
+    """Lista os modelos do provedor escolhido com a chave digitada (ainda não salva) ou, sem ela, com a chave salva
+    do mesmo provedor. Nada é gravado: a chave digitada só é usada nesta consulta."""
+    if dados.provedor not in ia.PROVEDORES:
+        raise HTTPException(400, "Provedor desconhecido.")
+    chave = (dados.chave or "").strip()
+    if not chave:
+        cfg = ia.config(ctx.db)
+        if dados.provedor != cfg.provedor or not cfg.chave_cifrada:
+            raise HTTPException(400, "Cole a chave deste provedor para listar os modelos.")
+        chave = segredos.decifrar_texto(cfg.chave_cifrada)
+    try:
+        return ia.listar_modelos(dados.provedor, chave)
     except ia.IAIndisponivel as e:
         raise HTTPException(502, str(e)) from e
 

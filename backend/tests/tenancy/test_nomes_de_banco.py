@@ -10,9 +10,12 @@ from tests.conftest import SENHA
 from tests.tenancy.conftest import _apagar_bancos, controle_proprio
 
 
-def test_padroes_nao_colidem_com_o_flicsales_antigo():
+def test_padroes_nao_colidem_com_o_flicsales_antigo(monkeypatch):
     from app.controle import service
 
+    # padrões do código, sem o .env do servidor (hml/prod têm nomes próprios lá)
+    monkeypatch.setattr(settings, "banco_controle", Settings.model_fields["banco_controle"].default)
+    monkeypatch.setattr(settings, "banco_prefixo", Settings.model_fields["banco_prefixo"].default)
     assert settings.banco_controle == "flicsalesos_controle" and tenancy.banco_controle() == "flicsalesos_controle"
     assert service.nome_do_banco("test") == "flicsalesos_test"
     assert service.nome_do_banco("acme-sul") == "flicsalesos_acme_sul"

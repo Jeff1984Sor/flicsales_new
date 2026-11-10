@@ -135,3 +135,27 @@ def test_regra_violada_vira_400_com_a_mensagem(client, token_admin):
         assert resp.status_code == 400 and resp.json() == {"detail": "Informe o motivo da perda"}
     finally:
         app.router.routes[:] = antes
+
+
+def test_modelos_ia_com_chave_digitada_nao_grava_nada(client, db, token_admin, monkeypatch):
+    from app.core import ia
+
+    vistos = []
+    monkeypatch.setattr(ia, "listar_modelos", lambda p, c: vistos.append((p, c)) or ["gpt-4o-mini", "gpt-4o"])
+    h = auth(token_admin)
+    # sem chave digitada e nada salvo: pede a chave
+    r = client.post("/api/config/ia/modelos", json={"provedor": "openai"}, headers=h)
+    assert r.status_code == 400 and "Cole a chave" in r.json()["detail"]
+    # chave digitada: lista e não salva
+    r = client.post("/api/config/ia/modelos", json={"provedor": "openai", "chave": " sk-teste-1234 "}, headers=h)
+    assert r.status_code == 200 and r.json() == ["gpt-4o-mini", "gpt-4o"]
+    assert vistos == [("openai", "sk-teste-1234")]
+    assert client.get("/api/config/ia", headers=h).json()["chave_definida"] is False
+    assert client.post("/api/config/ia/modelos", json={"provedor": "x", "chave": "k"}, headers=h).status_code == 400
+
+
+def test_modelos_ia_com_chave_exige_configuracoes(client, db):
+    criar_usuario(db, "Comercial", email="c@x.com")
+    h = auth(entrar(client, "c").json()["access_token"])
+    r = client.post("/api/config/ia/modelos", json={"provedor": "openai", "chave": "k"}, headers=h)
+    assert r.status_code == 403
