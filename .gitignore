@@ -31,3 +31,8 @@ next-env.d.ts
 Thumbs.db
 .claude/settings.local.json
 .claude/worktrees/
+
+# Deploy (deploy/deploy.sh): build alternativo, versão anterior do front e marca de rollback
+frontend/.next-novo/
+frontend/.next-anterior/
+.rollback-ativo
