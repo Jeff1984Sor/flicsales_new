@@ -1,5 +1,5 @@
-import { AssistentePagina } from "@/components/flic/assistente-pagina";
+import { AssistenteTela } from "@/components/orquestracao/assistente-tela";
 
 export default function AssistentePage() {
-  return <AssistentePagina />;
+  return <AssistenteTela />;
 }

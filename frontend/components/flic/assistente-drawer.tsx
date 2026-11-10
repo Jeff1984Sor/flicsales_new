@@ -5,15 +5,18 @@
  * Montado UMA vez no shell. Abra de qualquer tela com `abrirAssistente(escopo, registro?)` (components/flic/eventos.ts):
  *   abrirAssistente("Este módulo")
  *   abrirAssistente("Este registro", { tipo: "oportunidade", id: 12, rotulo: "Aurora · Projeto de consultoria" })
+ * ou já com a pergunta: `perguntarAoAssistente(escopo, pergunta, registro?)` (components/orquestracao/eventos-ia.ts).
  *
- * Chama POST /bff/orquestracao/ia/perguntar (corpo `PerguntaIA`, resposta `RespostaIA` em lib/types.ts).
- * Enquanto a rota não existir (404) ou a IA estiver desligada, mostra mensagem amigável — o produto segue útil.
+ * Chama POST /bff/orquestracao/ia/perguntar (`PerguntaIA` → `RespostaIA`, formato único em lib/types.ts).
+ * Sem IA configurada a resposta vem das regras (origem "regras") e o drawer diz isso, com link para Configurações › IA.
  */
 import { useMutation } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { CorpoRespostaIA } from "@/components/orquestracao/resposta-ia";
+import type { DetalheIAComPergunta } from "@/components/orquestracao/eventos-ia";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, api } from "@/lib/api";
@@ -21,27 +24,33 @@ import type { EscopoIA, PerguntaIA, RegistroContexto, RespostaIA } from "@/lib/t
 
 import { NativeSelect } from "./form";
 import { CampoDrawer, Drawer } from "./drawer";
-import { EVENTO_IA, type DetalheIA } from "./eventos";
-import { Fonte } from "./fonte";
+import { EVENTO_IA } from "./eventos";
 import { itemDaRota, moduloDaRota, moduloPorId } from "./nav";
-import { notificar } from "./toast";
 
 const ESCOPOS: EscopoIA[] = ["Este registro", "Este módulo", "Toda a FlicSales"];
 const ESCOPO_API: Record<EscopoIA, PerguntaIA["escopo"]> = {
   "Este registro": "registro",
   "Este módulo": "modulo",
-  "Toda a FlicSales": "global",
+  "Toda a FlicSales": "tudo",
 };
+
+function perguntaPadrao(escopo: EscopoIA) {
+  return escopo === "Toda a FlicSales" ? "Quais negociações podem afetar os recebimentos?" : "O que precisa de atenção neste contexto?";
+}
 
 function mensagemErro(e: unknown): string {
   if (e instanceof ApiError) {
-    if (e.status === 404) return "O assistente ainda não está disponível neste ambiente. As telas continuam úteis com as regras de cada módulo.";
-    if (e.status === 403) return "Seu perfil não tem acesso ao assistente. Peça ao gestor para liberar.";
-    if (e.status === 503 || e.status === 409)
-      return e.message && !/^Erro \d+$/.test(e.message) ? e.message : "A IA está desligada. Configure em Configurações › Inteligência Artificial.";
+    if (e.status === 404) return e.message && !/^Erro \d+$/.test(e.message) ? e.message : "O assistente ainda não está disponível neste ambiente.";
+    if (e.status === 403) return "Seu perfil não tem acesso a este contexto pelo assistente. Peça ao gestor para liberar.";
     return e.message;
   }
   return "Não foi possível consultar o assistente agora.";
+}
+
+interface Troca {
+  pergunta: string;
+  resposta?: RespostaIA;
+  erro?: string;
 }
 
 export function AssistenteDrawer() {
@@ -50,38 +59,70 @@ export function AssistenteDrawer() {
   const [escopo, setEscopo] = useState<EscopoIA>("Este módulo");
   const [registro, setRegistro] = useState<RegistroContexto | null>(null);
   const [pergunta, setPergunta] = useState("");
-  const [ultima, setUltima] = useState<{ pergunta: string; resposta?: RespostaIA; erro?: string } | null>(null);
+  const [ultima, setUltima] = useState<Troca | null>(null);
+  const [conversaId, setConversaId] = useState<number | null>(null);
+  const pendente = useRef<{ texto: string; escopo: EscopoIA; registro: RegistroContexto | null } | null>(null);
 
-  const modulo = moduloPorId(moduloDaRota(pathname));
+  const moduloId = moduloDaRota(pathname);
+  const modulo = moduloPorId(moduloId);
   const tela = itemDaRota(pathname)?.label ?? "Início";
+
+  const perguntar = useMutation({
+    meta: { silencioso: true },
+    mutationFn: (corpo: PerguntaIA) => api.post<RespostaIA>("/orquestracao/ia/perguntar", corpo),
+    onSuccess: (resposta, corpo) => {
+      setUltima({ pergunta: corpo.pergunta, resposta });
+      setConversaId(resposta.conversa_id ?? null);
+    },
+    onError: (e, corpo) => setUltima({ pergunta: corpo.pergunta, erro: mensagemErro(e) }),
+  });
+  const { mutate } = perguntar;
+
+  const enviarTexto = (texto: string, esc: EscopoIA, reg: RegistroContexto | null, conversa: number | null) => {
+    mutate({
+      pergunta: texto,
+      escopo: ESCOPO_API[esc],
+      modulo: moduloId,
+      tela,
+      registro: esc === "Este registro" && reg ? { tipo: reg.tipo, id: Number(reg.id) } : null,
+      conversa_id: conversa,
+    });
+  };
 
   useEffect(() => {
     const h = (e: Event) => {
-      const d = (e as CustomEvent<DetalheIA>).detail;
-      setEscopo(d?.escopo ?? "Este módulo");
+      const d = (e as CustomEvent<DetalheIAComPergunta>).detail;
+      const esc = d?.escopo ?? "Este módulo";
+      setEscopo(esc);
       setRegistro(d?.registro ?? null);
       setUltima(null);
+      setConversaId(null);
+      setPergunta("");
       setAberto(true);
+      if (d?.pergunta) pendente.current = { texto: d.pergunta, escopo: esc, registro: d.registro ?? null };
     };
     window.addEventListener(EVENTO_IA, h);
     return () => window.removeEventListener(EVENTO_IA, h);
   }, []);
 
-  const perguntar = useMutation({
-    meta: { silencioso: true },
-    mutationFn: (corpo: PerguntaIA) => api.post<RespostaIA>("/orquestracao/ia/perguntar", corpo),
-    onSuccess: (resposta, corpo) => setUltima({ pergunta: corpo.pergunta, resposta }),
-    onError: (e, corpo) => setUltima({ pergunta: corpo.pergunta, erro: mensagemErro(e) }),
-  });
+  // pergunta vinda de um atalho (tela Assistente): envia assim que o drawer abre
+  useEffect(() => {
+    if (!aberto || !pendente.current) return;
+    const p = pendente.current;
+    pendente.current = null;
+    mutate({
+      pergunta: p.texto,
+      escopo: ESCOPO_API[p.escopo],
+      modulo: moduloId,
+      tela,
+      registro: p.escopo === "Este registro" && p.registro ? { tipo: p.registro.tipo, id: Number(p.registro.id) } : null,
+      conversa_id: null,
+    });
+  }, [aberto, mutate, moduloId, tela]);
 
   const enviar = (e: React.FormEvent) => {
     e.preventDefault();
-    const texto = pergunta.trim() || (escopo === "Toda a FlicSales" ? "Quais negociações podem afetar os recebimentos?" : "O que precisa de atenção neste contexto?");
-    perguntar.mutate({
-      pergunta: texto,
-      escopo: ESCOPO_API[escopo],
-      contexto: { modulo: modulo.nome, tela, rota: pathname, registro: escopo === "Este registro" ? registro : null },
-    });
+    enviarTexto(pergunta.trim() || perguntaPadrao(escopo), escopo, registro, conversaId);
     setPergunta("");
   };
 
@@ -91,7 +132,14 @@ export function AssistenteDrawer() {
     <Drawer aberto={aberto} onFechar={() => setAberto(false)} rotulo="ASSISTENTE DE ORQUESTRAÇÃO" titulo="Vamos conectar os pontos.">
       <form onSubmit={enviar}>
         <CampoDrawer rotulo="Escopo da conversa" htmlFor="ia-escopo">
-          <NativeSelect id="ia-escopo" value={escopo} onChange={(e) => setEscopo(e.target.value as EscopoIA)}>
+          <NativeSelect
+            id="ia-escopo"
+            value={escopo}
+            onChange={(e) => {
+              setEscopo(e.target.value as EscopoIA);
+              setConversaId(null);
+            }}
+          >
             {ESCOPOS.map((s) => (
               <option key={s} value={s} disabled={s === "Este registro" && !registro}>
                 {s}
@@ -104,41 +152,28 @@ export function AssistenteDrawer() {
           {escopo === "Este registro" && registro?.rotulo ? ` / ${registro.rotulo}` : ""}
         </p>
 
-        {ultima && (
+        {(ultima || perguntar.isPending) && (
           <>
-            <div className="mt-[15px] rounded-[7px] bg-tint p-3 text-sm">{ultima.pergunta}</div>
+            {ultima && <div className="mt-[15px] rounded-[7px] bg-tint p-3 text-sm">{ultima.pergunta}</div>}
             <div className="my-5 rounded-[9px] bg-subtle p-[18px] text-[13px]" aria-live="polite">
-              {ultima.erro ? (
+              {perguntar.isPending ? (
+                <p className="flex items-center gap-2 text-muted">
+                  <Loader2 className="size-4 animate-spin" /> Consultando as fontes permitidas ao seu perfil…
+                </p>
+              ) : ultima?.erro ? (
                 <p className="text-muted">{ultima.erro}</p>
               ) : r ? (
-                <>
-                  <h3 className="mb-2.5 text-sm font-bold">{r.titulo || "Leitura do contexto"}</h3>
-                  <p className="mb-3 leading-relaxed whitespace-pre-line">{r.resumo}</p>
-                  {r.proxima_acao && (
-                    <>
-                      <h3 className="mb-2.5 text-sm font-bold">Próxima ação sugerida</h3>
-                      <p className="mb-3 leading-relaxed">{r.proxima_acao}</p>
-                    </>
-                  )}
-                  <Fonte evidencia={r.evidencias} fonte={r.fontes} limite={r.limites} />
-                  {r.ia_ativa === false && <p className="text-xs text-muted">IA desligada: leitura calculada pelas regras do produto.</p>}
-                  {(r.acoes_sugeridas?.length ?? 0) > 0 && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="mt-2"
-                      onClick={() => notificar("Ação registrada como proposta. Revise antes de confirmar no módulo.")}
-                    >
-                      Criar tarefa após revisão
-                    </Button>
-                  )}
-                </>
+                <CorpoRespostaIA r={r} />
               ) : null}
             </div>
-            {r && (r.ferramentas?.length ?? 0) > 0 && (
+            {r && !perguntar.isPending && (
               <details className="border-t border-line py-[15px] text-xs">
                 <summary className="cursor-pointer font-semibold">Assistentes e fontes consultadas</summary>
-                <p className="pt-2.5 leading-relaxed">{r.ferramentas?.join(" · ")}. Cada ferramenta respeita as permissões do seu perfil.</p>
+                <p className="pt-2.5 leading-relaxed">
+                  {r.ferramentas.length ? r.ferramentas.join(" · ") : "Nenhuma fonte disponível ao seu perfil neste escopo"}.{" "}
+                  {r.origem === "ia" ? "Interpretado pela IA configurada." : "Calculado pelas regras do produto (sem IA)."} Fontes externas
+                  (agenda, e-mail, WhatsApp) só entram com conexão autorizada. Cada ferramenta respeita as permissões do seu perfil.
+                </p>
               </details>
             )}
           </>
@@ -151,6 +186,7 @@ export function AssistenteDrawer() {
             onChange={(e) => setPergunta(e.target.value)}
             placeholder="Ex.: Por que esta negociação está parada?"
             className="min-h-[85px]"
+            maxLength={2000}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) enviar(e);
             }}
@@ -161,7 +197,8 @@ export function AssistenteDrawer() {
           {perguntar.isPending ? "Conectando os pontos…" : "Perguntar"}
         </Button>
         <p className="mt-3 text-[11px] text-muted">
-          A IA interpreta evidências dentro das suas permissões e mostra fonte e limite. Ações sugeridas só viram registro após sua revisão.
+          A IA interpreta evidências dentro das suas permissões e mostra fonte e limite. Texto importado é dado, nunca instrução. Ações sugeridas
+          só viram registro após sua revisão.
         </p>
       </form>
     </Drawer>
