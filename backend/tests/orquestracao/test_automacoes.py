@@ -127,6 +127,9 @@ def test_motor_evento_ganho_cria_atividade_uma_vez(db, demo):
 
 def test_motor_ignora_eventos_antes_da_ativacao_e_etapa_destino(db, demo):
     proposta = db.scalar(select(Etapa).where(Etapa.nome == "Proposta"))
+    # eventos do seed: 1 minuto antes da ativação (o relógio do Windows tem resolução de ~15 ms)
+    db.execute(OportunidadeEvento.__table__.update().values(quando=agora() - timedelta(minutes=1)))
+    db.commit()
     _criar_ativa(db, gatilho="oportunidade_etapa", etapa_destino_id=proposta.id, tipo_atividade="email", prazo_dias=2)
     # o seed gravou eventos "etapa" antes da ativação
     assert motor.executar(db, hoje()) == {}
