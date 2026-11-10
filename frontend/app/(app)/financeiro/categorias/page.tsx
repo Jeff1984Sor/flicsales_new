@@ -1,6 +1,18 @@
-import { EmConstrucao } from "@/components/flic/em-construcao";
+"use client";
 
-// Provisória (fundação). O módulo dono substitui esta página pela tela real do protótipo.
-export default function FinanceiroCategoriasPage() {
-  return <EmConstrucao titulo="Categorias" descricao="Cadastros e comandos da operação." />;
+import { Suspense } from "react";
+
+import { TelaCategorias, useIdDaUrl } from "@/components/cadastros";
+
+function Tela() {
+  const id = useIdDaUrl();
+  return <TelaCategorias key={id ?? 0} idInicial={id} />;
+}
+
+export default function CategoriasPage() {
+  return (
+    <Suspense>
+      <Tela />
+    </Suspense>
+  );
 }

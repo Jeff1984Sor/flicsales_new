@@ -1,6 +1,7 @@
-import { EmConstrucao } from "@/components/flic/em-construcao";
+"use client";
 
-// Provisória (fundação). O módulo dono substitui esta página pela tela real do protótipo.
-export default function NucleoCamposPage() {
-  return <EmConstrucao titulo="Campos personalizados" descricao="Flexibilidade sem duplicar cadastros nem criar novos sistemas." />;
+import { TelaCampos } from "@/components/cadastros";
+
+export default function CamposPersonalizadosPage() {
+  return <TelaCampos />;
 }

@@ -1,6 +1,13 @@
-import { EmConstrucao } from "@/components/flic/em-construcao";
+"use client";
 
-// Provisória (fundação). O módulo dono substitui esta página pela tela real do protótipo.
-export default function NucleoCadastrosPage() {
-  return <EmConstrucao titulo="Cadastros mestres" descricao="Uma base única para Comercial e Financeiro." />;
+import { Suspense } from "react";
+
+import { TelaCadastrosMestres } from "@/components/cadastros";
+
+export default function CadastrosMestresPage() {
+  return (
+    <Suspense>
+      <TelaCadastrosMestres />
+    </Suspense>
+  );
 }
