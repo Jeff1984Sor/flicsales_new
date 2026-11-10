@@ -135,23 +135,45 @@ export interface RegistroContexto {
   rotulo?: string;
 }
 
-/** Corpo de POST /orquestracao/ia/perguntar (contrato proposto pelo frontend; o agente de IA confirma). */
+/** Corpo de POST /orquestracao/ia/perguntar (contrato da Orquestração). */
 export interface PerguntaIA {
   pergunta: string;
-  escopo: "registro" | "modulo" | "global";
-  contexto: { modulo: string; tela: string; rota: string; registro?: RegistroContexto | null };
+  escopo: "registro" | "modulo" | "tudo";
+  modulo?: "comercial" | "financeiro" | "nucleo" | null;
+  tela?: string | null;
+  registro?: { tipo: string; id: number } | null;
+  /** continua uma conversa já aberta */
+  conversa_id?: number | null;
 }
 
-/** Resposta estruturada: evidência, fonte e limite sempre presentes. Ações nascem propostas. */
+/** Evidência: de onde veio (fonte) + o dado que sustenta (trecho). */
+export interface EvidenciaIA {
+  fonte: string;
+  trecho: string;
+  registro?: { tipo: string; id: number };
+}
+
+/** Ação sugerida: nasce PROPOSTA. `criar_atividade` vira registro após o clique (POST /orquestracao/acoes/executar);
+ *  `abrir_registro` é atalho de navegação. */
+export interface AcaoSugeridaIA {
+  tipo: "criar_atividade" | "abrir_registro" | (string & {});
+  rotulo: string;
+  payload: Record<string, unknown>;
+}
+
+/** Formato ÚNICO de resposta (IA e regras): evidência, fonte e limite sempre presentes. */
 export interface RespostaIA {
-  titulo?: string | null;
-  resumo: string;
-  proxima_acao?: string | null;
-  evidencias?: string[];
-  fontes?: string[];
-  limites?: string[];
-  acoes_sugeridas?: { tipo: string; rotulo: string; dados?: Record<string, unknown> }[];
-  ferramentas?: string[];
-  /** false quando a IA está desligada e a resposta veio das regras determinísticas */
-  ia_ativa?: boolean;
+  titulo: string;
+  analise: string;
+  proxima_acao: string;
+  evidencias: EvidenciaIA[];
+  limites: string[];
+  acoes_sugeridas: AcaoSugeridaIA[];
+  /** "regras" = IA desligada ou indisponível: leitura determinística */
+  origem: "ia" | "regras";
+  /** assistentes/fontes consultados (cada um dentro das permissões do perfil) */
+  ferramentas: string[];
+  ia_ligada?: boolean;
+  conversa_id?: number | null;
+  mensagem_id?: number | null;
 }

@@ -164,7 +164,12 @@ ATIVIDADES = [lei.AtividadeResumo(20, "Retomar proposta da Vértice", date(2026,
 
 def test_leitura_prioriza_vencido_e_tem_formato_da_ia():
     r = _leitura(titulos=TITULOS, oportunidades=OPORTUNIDADES, atividades=ATIVIDADES)
-    assert set(r) == {"titulo", "analise", "proxima_acao", "evidencias", "limites", "acoes_sugeridas", "origem"}
+    assert set(r) == {"titulo", "analise", "proxima_acao", "evidencias", "limites", "acoes_sugeridas", "origem",
+                      "ferramentas"}
+    assert all({"fonte", "trecho"} <= set(e) for e in r["evidencias"])
+    assert all({"tipo", "rotulo", "payload"} <= set(a) for a in r["acoes_sugeridas"])
+    criar = [a for a in r["acoes_sugeridas"] if a["tipo"] == "criar_atividade"]
+    assert criar and criar[0]["payload"]["oportunidade_id"] == 10 and criar[0]["payload"]["assunto"]
     assert r["origem"] == "regras" and r["titulo"] == "Recebível vencido pede ação"
     assert [e["registro"] for e in r["evidencias"]] == [
         {"tipo": "titulo", "id": 1}, {"tipo": "oportunidade", "id": 10}, {"tipo": "oportunidade", "id": 11},
