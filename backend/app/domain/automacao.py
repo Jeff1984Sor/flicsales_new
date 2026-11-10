@@ -301,6 +301,12 @@ class AtividadeFoto:
     empresa: str | None = None
     concluida_em: datetime | None = None
     criada_por_automacoes: frozenset[int] = frozenset()  # automações que criaram esta atividade (ciclo)
+    origem: str | None = None  # manual | automacao | ia
+
+    @property
+    def de_automacao(self) -> bool:
+        """Criada por QUALQUER automação: não dispara gatilhos de atividade (profundidade 1, sem cadeia A → B → A)."""
+        return self.origem == "automacao" or bool(self.criada_por_automacoes)
 
 
 @dataclass(frozen=True)
@@ -517,7 +523,7 @@ def _comercial(regra: Regra, e: Estado, hoje: date) -> list[Ocorrencia]:
         n = _janela(regra, 1)
         todas = {o.id: o for o in e.oportunidades}
         for a in e.atividades:
-            if regra.id in a.criada_por_automacoes:  # prevenção de ciclo
+            if a.de_automacao:  # prevenção de ciclo: nem a própria, nem outra automação em cadeia
                 continue
             if regra.funil_id is not None and (a.oportunidade_id is None or a.oportunidade_id not in opps):
                 continue

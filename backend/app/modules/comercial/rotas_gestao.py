@@ -662,7 +662,7 @@ def previa_modelo(modelo_id: int, dados: PreviaModeloIn, ctx: Ctx):
         if op.contato_id:
             p = ctx.db.get(Pessoa, op.contato_id)
             valores["contato.nome"] = p.nome if p else None
-        titulos = recebiveis_da_oportunidade(ctx.db, op.id)
+        titulos = recebiveis_da_oportunidade(ctx.db, op.id) if ctx.pode("financeiro.titulos.ver") else []
         if titulos:
             valores["titulo.valor"] = formatar_brl(titulos[0].valor_original or ZERO)
             valores["titulo.vencimento"] = titulos[0].vencimento.strftime("%d/%m/%Y")

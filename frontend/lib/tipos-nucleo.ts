@@ -63,10 +63,11 @@ export interface Empresa {
   condicao_habitual: string | null;
   ativo: boolean;
   criado_em: string;
-  /** relacionamentos: oportunidades (todas) e títulos a receber não cancelados */
-  oportunidades: number;
-  titulos_receber: number;
-  saldo_receber: string;
+  /** relacionamentos no escopo do perfil: oportunidades e títulos a receber não cancelados.
+   * null = o perfil não vê aquele módulo (mostre "—"). */
+  oportunidades: number | null;
+  titulos_receber: number | null;
+  saldo_receber: string | null;
 }
 
 export interface EmpresaDetalhe extends Empresa {

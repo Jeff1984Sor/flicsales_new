@@ -150,32 +150,44 @@ def _inativar(ctx: Ctx, obj, entidade: str, rotulo: str) -> None:
 
 
 # ================================================================================================= empresas
-def _subq_contagens():
-    opp = (select(Oportunidade.empresa_id.label("eid"), func.count().label("n"))
-           .where(Oportunidade.empresa_id.is_not(None)).group_by(Oportunidade.empresa_id).subquery())
-    tit = (select(Titulo.empresa_id.label("eid"), func.count().label("n"),
-                  func.coalesce(func.sum(case((Titulo.status.in_(("aberto", "parcial")), Titulo.saldo), else_=0)), 0)
-                  .label("saldo"))
-           .where(Titulo.direcao == "receber", Titulo.status != "cancelado").group_by(Titulo.empresa_id).subquery())
-    return opp, tit
+def _subq_contagens(ctx: Ctx | None = None):
+    """Contagens por empresa. Com `ctx`, respeita o escopo "só meus registros" (sem ctx: visão administrativa,
+    usada na detecção de duplicidades)."""
+    opp_q = (select(Oportunidade.empresa_id.label("eid"), func.count().label("n"))
+             .where(Oportunidade.empresa_id.is_not(None)))
+    tit_q = (select(Titulo.empresa_id.label("eid"), func.count().label("n"),
+                    func.coalesce(func.sum(case((Titulo.status.in_(("aberto", "parcial")), Titulo.saldo), else_=0)), 0)
+                    .label("saldo"))
+             .where(Titulo.direcao == "receber", Titulo.status != "cancelado"))
+    if ctx is not None:
+        opp_q = ctx.filtrar_meus(opp_q, Oportunidade.responsavel_id)
+        tit_q = ctx.filtrar_meus(tit_q, Titulo.responsavel_id)
+    return (opp_q.group_by(Oportunidade.empresa_id).subquery(), tit_q.group_by(Titulo.empresa_id).subquery())
+
+
+def _ve_contagens(ctx: Ctx) -> tuple[bool, bool]:
+    """(vê oportunidades, vê títulos a receber): cadastro é compartilhado, os números de cada módulo não."""
+    return ctx.pode("comercial.oportunidades.ver"), ctx.pode("financeiro.titulos.ver")
 
 
 def _empresa_saida(e: Empresa, *, opp: int = 0, tit: int = 0, saldo=0, resp: str | None = None,
-                   categoria: str | None = None, modelo=EmpresaSaida):
+                   categoria: str | None = None, modelo=EmpresaSaida, ve: tuple[bool, bool] = (True, True)):
+    ve_opp, ve_tit = ve
     base = {c: getattr(e, c) for c in EmpresaSaida.model_fields if hasattr(e, c)}
-    base.update(responsavel_nome=resp, categoria_padrao_nome=categoria, oportunidades=opp or 0, titulos_receber=tit or 0,
-                saldo_receber=_dinheiro(saldo), campos_custom=e.campos_custom or {})
+    base.update(responsavel_nome=resp, categoria_padrao_nome=categoria,
+                oportunidades=(opp or 0) if ve_opp else None, titulos_receber=(tit or 0) if ve_tit else None,
+                saldo_receber=_dinheiro(saldo) if ve_tit else None, campos_custom=e.campos_custom or {})
     return modelo(**base)
 
 
 def _empresa_completa(ctx: Ctx, e: Empresa, modelo=EmpresaSaida):
-    opp, tit = _subq_contagens()
+    opp, tit = _subq_contagens(ctx)
     n_opp = ctx.db.scalar(select(opp.c.n).where(opp.c.eid == e.id)) or 0
     linha = ctx.db.execute(select(tit.c.n, tit.c.saldo).where(tit.c.eid == e.id)).first()
     resp = ctx.db.get(Usuario, e.responsavel_id).nome if e.responsavel_id else None
     cat = ctx.db.get(Categoria, e.categoria_padrao_id).nome if e.categoria_padrao_id else None
     saida = _empresa_saida(e, opp=n_opp, tit=linha.n if linha else 0, saldo=linha.saldo if linha else 0, resp=resp,
-                           categoria=cat, modelo=modelo)
+                           categoria=cat, modelo=modelo, ve=_ve_contagens(ctx))
     if modelo is EmpresaDetalhe:
         contatos = ctx.db.scalars(select(Pessoa).where(Pessoa.empresa_id == e.id, Pessoa.ativo.is_(True))
                                   .order_by(Pessoa.nome))
@@ -205,7 +217,8 @@ def _validar_empresa(ctx: Ctx, e: Empresa | None, dados: dict) -> dict:
 def listar_empresas(ctx: Ctx, q: str | None = None, papel: Papel | None = None,
                     situacao: Situacao = "ativos", pagina: int = Query(1, ge=1),
                     por_pagina: int = Query(50, ge=1, le=200)):
-    opp, tit = _subq_contagens()
+    opp, tit = _subq_contagens(ctx)
+    ve = _ve_contagens(ctx)
     consulta = (select(Empresa, opp.c.n, tit.c.n, tit.c.saldo, Usuario.nome)
                 .outerjoin(opp, opp.c.eid == Empresa.id).outerjoin(tit, tit.c.eid == Empresa.id)
                 .outerjoin(Usuario, Usuario.id == Empresa.responsavel_id))
@@ -218,7 +231,8 @@ def listar_empresas(ctx: Ctx, q: str | None = None, papel: Papel | None = None,
     if papel:
         consulta = consulta.where(getattr(Empresa, f"papel_{papel}").is_(True))
     linhas, total = _paginar(ctx, consulta.order_by(Empresa.nome_chave), pagina, por_pagina)
-    itens = [_empresa_saida(e, opp=n_opp, tit=n_tit, saldo=saldo, resp=resp) for e, n_opp, n_tit, saldo, resp in linhas]
+    itens = [_empresa_saida(e, opp=n_opp, tit=n_tit, saldo=saldo, resp=resp, ve=ve)
+             for e, n_opp, n_tit, saldo, resp in linhas]
     return Pagina[EmpresaSaida](itens=itens, total=total, pagina=pagina, por_pagina=por_pagina)
 
 

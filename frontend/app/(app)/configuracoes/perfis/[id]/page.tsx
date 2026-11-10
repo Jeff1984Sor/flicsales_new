@@ -122,7 +122,7 @@ function Cartao({ icone: I, titulo, acao, children, className }: { icone: React.
 function UsuariosDoPerfil({ perfil }: { perfil: PerfilAcessoOut }) {
   const qc = useQueryClient();
   const { pode, usuario: eu } = useAuth();
-  const editar = pode("usuarios.editar");
+  const editar = pode("nucleo.administracao.editar");
   const usuarios = useQuery({ queryKey: ["usuarios"], queryFn: () => api.get<UsuarioOut[]>("/config/usuarios") });
   const trocar = useMutation({
     mutationFn: ({ u, perfilId }: { u: UsuarioOut; perfilId: number }) => api.patch<UsuarioOut>(`/config/usuarios/${u.id}`, { perfil_acesso_id: perfilId }),
@@ -212,7 +212,7 @@ export default function PerfilEditorPage() {
   const router = useRouter();
   const qc = useQueryClient();
   const { pode, usuario: eu } = useAuth();
-  const editar = pode("perfis.editar");
+  const editar = pode("nucleo.administracao.editar");
   const perfis = usePerfisAcesso();
   const catalogo = useCatalogo();
   const perfil = perfis.data?.find((p) => p.id === pid);
@@ -499,7 +499,7 @@ export default function PerfilEditorPage() {
             </fieldset>
           </Cartao>
 
-          {perfil && pode("usuarios.ver") && <UsuariosDoPerfil perfil={perfil} />}
+          {perfil && pode("nucleo.administracao.ver") && <UsuariosDoPerfil perfil={perfil} />}
           {novo && <p className="px-1 text-xs text-muted-foreground">Depois de salvar, você poderá trazer pessoas para este perfil.</p>}
         </div>
 

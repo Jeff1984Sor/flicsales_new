@@ -56,7 +56,7 @@ export default function PerfisPage() {
   const qc = useQueryClient();
   const router = useRouter();
   const { pode, usuario } = useAuth();
-  const editar = pode("perfis.editar");
+  const editar = pode("nucleo.administracao.editar");
   const perfis = usePerfisAcesso();
   const catalogo = useCatalogo();
   const [q, setQ] = useState("");

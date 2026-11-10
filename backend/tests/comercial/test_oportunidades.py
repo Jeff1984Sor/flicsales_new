@@ -186,6 +186,30 @@ def test_ganha_nao_muda_valor_nem_reabre(client, marina, demo):
     assert r.status_code == 400
 
 
+def test_detalhe_sem_permissao_financeira_nao_mostra_recebiveis(client, demo, marina):
+    """Perfil de vendas sem financeiro.titulos.ver ganha a venda, mas no detalhe só vê QUANTOS recebíveis foram
+    preparados — sem valor, saldo nem status (o financeiro pode ter recebido parte)."""
+    from app.core.models import PerfilAcesso
+
+    perfil = demo.scalar(select(PerfilAcesso).where(PerfilAcesso.nome == "Comercial"))
+    perfil.permissoes = [p for p in perfil.permissoes if not p.startswith("financeiro.")]
+    demo.commit()
+    op = oportunidade(demo, "Projeto de consultoria")
+    r = client.post(f"{API}/oportunidades/{op.id}/ganhar", headers=marina, json={
+        "valor": "24000", "condicao": "2 parcelas iguais", "primeiro_vencimento": hoje().isoformat()})
+    assert r.status_code == 200, r.text
+    d = client.get(f"{API}/oportunidades/{op.id}", headers=marina).json()
+    assert d["recebiveis"] == [] and d["recebiveis_preparados"] == 2
+
+
+def test_detalhe_com_permissao_financeira_mostra_recebiveis(client, demo, marina):
+    op = oportunidade(demo, "Projeto de consultoria")
+    client.post(f"{API}/oportunidades/{op.id}/ganhar", headers=marina, json={
+        "valor": "24000", "condicao": "Parcela única", "primeiro_vencimento": hoje().isoformat()})
+    d = client.get(f"{API}/oportunidades/{op.id}", headers=marina).json()
+    assert len(d["recebiveis"]) == 1 and d["recebiveis"][0]["saldo"] == "24000.00" and d["recebiveis_preparados"] == 1
+
+
 def test_ganhar_validacoes(client, marina, demo):
     f = funil_demo(demo)
     sem_empresa = client.post(f"{API}/oportunidades", headers=marina, json={"titulo": "Sem empresa",

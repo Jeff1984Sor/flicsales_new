@@ -181,7 +181,7 @@ function Kpi({ rotulo, valor, tom }: { rotulo: string; valor: number; tom?: stri
 export default function UsuariosPage() {
   const qc = useQueryClient();
   const { usuario: eu, pode } = useAuth();
-  const editar = pode("usuarios.editar");
+  const editar = pode("nucleo.administracao.editar");
   const [q, setQ] = useState("");
   const [perfilId, setPerfilId] = useState<string>("");
   const [acesso, setAcesso] = useState<FiltroAcesso>("todos");
@@ -190,7 +190,7 @@ export default function UsuariosPage() {
   const [senhaDe, setSenhaDe] = useState<UsuarioOut | null>(null);
   const [desativar, setDesativar] = useState<UsuarioOut | null>(null);
   const lista = useQuery({ queryKey: ["usuarios"], queryFn: () => api.get<UsuarioOut[]>("/config/usuarios"), refetchInterval: 60_000 });
-  const perfis = usePerfisAcesso(pode("perfis.ver"));
+  const perfis = usePerfisAcesso(pode("nucleo.administracao.ver"));
 
   const patch = useMutation({
     mutationFn: ({ id, ...body }: { id: number; ativo?: boolean }) => api.patch(`/config/usuarios/${id}`, body),
@@ -401,7 +401,7 @@ export default function UsuariosPage() {
               {p.descricao && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{p.descricao}</p>}
             </button>
           ))}
-          {pode("perfis.ver") && (
+          {pode("nucleo.administracao.ver") && (
             <Link href="/configuracoes/perfis" className="flex items-center gap-2 rounded-2xl border border-dashed bg-card p-4 text-sm font-medium text-info-ink transition-colors hover:border-brand/40">
               <ShieldCheck className="size-4" /> Gerenciar perfis de acesso <ChevronRight className="ml-auto size-4" />
             </Link>

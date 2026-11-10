@@ -172,3 +172,23 @@ def test_aprovacao_de_pagamento():
         t.validar_aprovacao("receber", "aberto", None)
     with pytest.raises(RegraViolada, match="já está aprovado"):
         t.validar_aprovacao("pagar", "aberto", "aprovado")
+
+
+# ---------------------------------------------------------------- alçada após edição
+@pytest.mark.parametrize("campo,antes,depois", [
+    ("valor_original", D("100.00"), D("90000.00")),
+    ("empresa_id", 1, 2),
+    ("vencimento", HOJE, date(2026, 12, 1)),
+])
+def test_editar_campo_da_alcada_de_pagar_aprovado_exige_nova_aprovacao(campo, antes, depois):
+    assert t.exige_nova_aprovacao(direcao="pagar", aprovacao="aprovado", antes={campo: antes}, mudancas={campo: depois})
+
+
+def test_edicao_que_nao_toca_a_alcada_mantem_aprovacao():
+    base = {"valor_original": D("100.00"), "empresa_id": 1, "vencimento": HOJE}
+    assert not t.exige_nova_aprovacao(direcao="pagar", aprovacao="aprovado", antes=base,
+                                      mudancas={"descricao": "Outra", "valor_original": D("100")})
+    assert not t.exige_nova_aprovacao(direcao="pagar", aprovacao="pendente", antes=base,
+                                      mudancas={"valor_original": D("5")})
+    assert not t.exige_nova_aprovacao(direcao="receber", aprovacao=None, antes=base,
+                                      mudancas={"valor_original": D("5")})

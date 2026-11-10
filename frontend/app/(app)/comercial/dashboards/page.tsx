@@ -30,7 +30,9 @@ export default function DashboardsPage() {
   const editar = pode("comercial.desempenho.editar");
   const [config, setConfig] = useState(false);
   useAtalhoNovo(() => editar && setConfig(true));
-  const { data: d, isPending } = useQuery({ queryKey: ["comercial", "dashboards"], queryFn: () => api.get<Dashboard>("/comercial/dashboards") });
+  const { data: d, isPending, isError, refetch } = useQuery({ queryKey: ["comercial", "dashboards"], queryFn: () => api.get<Dashboard>("/comercial/dashboards") });
+  // erro ≠ zero: sem dados, os KPIs mostram "—" e um aviso, nunca "0"
+  const kpi = (v: number | undefined) => (isError ? "—" : (v ?? 0));
   const grafico = (d?.pipeline_por_etapa ?? []).map((e) => ({ etapa: e.etapa, valor: Number(e.valor), quantidade: e.quantidade }));
 
   return (
@@ -40,11 +42,19 @@ export default function DashboardsPage() {
         descricao="Sua visão de gestão, com campos padrão e personalizados."
         acao={editar ? <Button onClick={() => setConfig(true)}>+ Configurar indicador</Button> : undefined}
       />
+      {isError && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-[10px] border border-amber/40 bg-amber/10 p-3 text-sm" role="alert">
+          <span>Não foi possível carregar os dashboards agora. Os números abaixo não estão disponíveis.</span>
+          <Button size="sm" variant="outline" onClick={() => refetch()}>
+            Tentar de novo
+          </Button>
+        </div>
+      )}
       <Metricas>
-        <KpiCard rotulo="Pipeline · alto interesse" valor={<Dinheiro valor={d?.pipeline_alto_interesse} />} detalhe="Filtro por campo personalizado" formula="Σ valor único das abertas com Interesse = Alto" carregando={isPending} />
-        <KpiCard rotulo="Oportunidades" valor={d?.oportunidades ?? 0} detalhe="Registros no seu escopo" carregando={isPending} />
-        <KpiCard rotulo="Recebíveis" valor={d?.recebiveis ?? 0} detalhe="Gerados por vendas ganhas" carregando={isPending} />
-        <KpiCard rotulo="Próximas ações" valor={d?.proximas_acoes ?? 0} detalhe="Atividades pendentes" carregando={isPending} />
+        <KpiCard rotulo="Pipeline · alto interesse" valor={isError ? "—" : <Dinheiro valor={d?.pipeline_alto_interesse} />} detalhe="Filtro por campo personalizado" formula="Σ valor único das abertas com Interesse = Alto" carregando={isPending && !isError} />
+        <KpiCard rotulo="Oportunidades" valor={kpi(d?.oportunidades)} detalhe="Registros no seu escopo" carregando={isPending && !isError} />
+        <KpiCard rotulo="Recebíveis" valor={kpi(d?.recebiveis)} detalhe="Gerados por vendas ganhas" carregando={isPending && !isError} />
+        <KpiCard rotulo="Próximas ações" valor={kpi(d?.proximas_acoes)} detalhe="Atividades pendentes" carregando={isPending && !isError} />
       </Metricas>
       <GradePaineis>
         <Painel titulo="Pipeline por etapa">
@@ -77,8 +87,10 @@ export default function DashboardsPage() {
         </Painel>
       </GradePaineis>
 
-      <Painel titulo="Indicadores configurados" acao={<Etiqueta>{`${d?.indicadores.length ?? 0} ativo(s)`}</Etiqueta>}>
-        {(d?.indicadores ?? []).length === 0 ? (
+      <Painel titulo="Indicadores configurados" acao={<Etiqueta>{isError ? "Indisponível" : `${d?.indicadores.length ?? 0} ativo(s)`}</Etiqueta>}>
+        {isError ? (
+          <p className="text-sm text-muted">Não foi possível carregar os indicadores configurados.</p>
+        ) : (d?.indicadores ?? []).length === 0 ? (
           <p className="text-sm text-muted">Nenhum indicador configurado. Use “Configurar indicador” para criar um com filtro por campo personalizado.</p>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 min-[1100px]:grid-cols-3">

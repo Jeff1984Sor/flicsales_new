@@ -236,7 +236,7 @@ export function DrawerEmpresa({
         descricao={
           empresaId == null
             ? "O nome basta para começar."
-            : e && `Empresa compartilhada · ${e.oportunidades} oportunidade(s) · ${e.titulos_receber} recebível(is)`
+            : e && `Empresa compartilhada · ${e.oportunidades ?? "—"} oportunidade(s) · ${e.titulos_receber ?? "—"} recebível(is)`
         }
         rodape={
           pronto &&
@@ -270,9 +270,10 @@ export function DrawerEmpresa({
             <div className="rounded-[10px] border border-electric/20 bg-electric/5 p-4">
               <h3 className="mb-2 text-sm font-bold">Relacionamentos</h3>
               <p className="text-sm">
-                {e.oportunidades} oportunidade(s)
+                {e.oportunidades ?? "—"} oportunidade(s)
                 <br />
-                {e.titulos_receber} recebível(is) · saldo aberto <Dinheiro valor={e.saldo_receber} />
+                {e.titulos_receber ?? "—"} recebível(is) · saldo aberto{" "}
+                {e.saldo_receber == null ? "—" : <Dinheiro valor={e.saldo_receber} />}
               </p>
             </div>
             <div>

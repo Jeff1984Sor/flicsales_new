@@ -85,6 +85,27 @@ operação bancária é executada.", "Sem conciliação bancária…"). Componen
 4. Cobrança: só nasce para título confirmado com saldo (aberto/parcial); a edição posterior é livre para registrar o desfecho.
 5. "Aprovações" lista só contas a pagar; descontos comerciais em aprovação ficam em Comercial › Propostas (texto na tela).
 
+## Correções do QA (acesso, alçada e escopo) — decisões
+- **Alçada**: editar `valor_original`, `empresa_id` ou `vencimento` de conta a pagar **aprovada** volta a aprovação para
+  `pendente` (limpa quem/quando aprovou; fica na auditoria de `titulo.editar`). Regra pura
+  `domain/titulos.exige_nova_aprovacao`. Descrição, categoria etc. não mexem na aprovação.
+- **Contas a pagar** são da operação financeira: `financeiro.titulos.ver` sozinho (perfil Comercial, "leitura dos
+  recebíveis") vê só **a receber**. Ver/abrir/criar **a pagar** exige também `financeiro.aprovacoes.ver` **ou**
+  `financeiro.baixas.ver` (`servico.pode_ver_pagar`; Financeiro, Somente leitura e Gestor têm). Lista com
+  `direcao=pagar` e contagens de pagar → 403 com mensagem; detalhe de título a pagar → 404; lista sem direção → só
+  a receber. A IA usa a mesma regra (ferramenta de títulos e foco "Este registro"). No menu, "A pagar" passou a
+  depender de `financeiro.aprovacoes` (o menu só aceita um recurso). Não mexi em `core/permissoes.py`: o perfil
+  Comercial continua com `financeiro.titulos.ver`.
+- **Caixa**: `GET /financeiro/hoje` só traz `saldo_gerencial` com `financeiro.caixa.ver`; `aprovacoes_pendentes` só
+  para quem vê a pagar; `recorrencias_ativas` só com `financeiro.recorrencias.ver` (senão `null`, a tela esconde o KPI).
+  `/titulos/opcoes` só traz contas financeiras com `financeiro.caixa.ver` ou `financeiro.baixas.editar` (quem
+  registra baixa precisa escolher a conta).
+- **Só meus registros**: Hoje (fila, totais, aprovações, recorrências), baixas (lista; estornar baixa de título fora
+  do escopo → 404), cobranças (minha se sou responsável pela cobrança **ou** pelo título; detalhe/edição → 404),
+  aprovações e recorrências (lista; detalhe/edição/gerar → 404). Criar cobrança só para título do meu escopo.
+- CSV de A receber/A pagar exporta **todos** os títulos dos filtros atuais (página a página, 200 por vez) e avisa
+  quantos foram exportados.
+
 ## Não feito / limites
 - Não testei no navegador com o backend rodando (só testes de API, lint e build).
 - Juros/multa/desconto na baixa, reajuste de recorrência, anexo de comprovante e DRE: fora desta fase.

@@ -162,12 +162,8 @@ def _filtrar_comunicacoes(ctx: Ctx, consulta):
 def _obter_comunicacao(ctx: Ctx, cid: int) -> Comunicacao:
     c = ctx.db.get(Comunicacao, cid)
     nao = HTTPException(404, "Comunicação não encontrada.")
-    if c is None:
+    if c is None or not sv.comunicacao_visivel(ctx, c):
         raise nao
-    if ctx.somente_meus_registros():
-        op = ctx.db.get(Oportunidade, c.oportunidade_id) if c.oportunidade_id else None
-        if op is None or op.responsavel_id != ctx.usuario.id:
-            raise nao
     return c
 
 

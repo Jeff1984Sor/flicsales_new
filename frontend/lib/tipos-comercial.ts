@@ -73,7 +73,9 @@ export interface Recebivel {
 
 export interface OportunidadeDetalhe extends Oportunidade {
   contexto: { texto: string; fonte: string | null; limite: string };
+  /** Vazio para quem não tem financeiro.titulos.ver (aí só vem a quantidade em recebiveis_preparados). */
   recebiveis: Recebivel[];
+  recebiveis_preparados: number;
   atividades_pendentes: number;
   comunicacoes: number;
   propostas: number;
