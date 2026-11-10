@@ -35,3 +35,22 @@ def preparar_recebiveis_do_ganho(db: Session, *, oportunidade_id: int, titulo: s
             origem_oportunidade_id=p.oportunidade_id, parcela=p.parcela, parcelas_total=p.parcelas_total))
     db.flush()
     return recebiveis_da_oportunidade(db, oportunidade_id)
+
+
+def titulos_em_contestacao(db: Session) -> set[int]:
+    """Ids dos títulos com cobrança "Em contestação" (a automação de cobrança deve suspender o envio)."""
+    from app.modules.financeiro.operacoes import titulos_em_contestacao as _contestados
+
+    return _contestados(db)
+
+
+def cobranca_suspensa(db: Session, titulo_id: int) -> bool:
+    """A automação de cobrança deve pular este título? (recebido, cancelado, rascunho ou em contestação)."""
+    from app.domain.cobranca import cobranca_suspensa as _suspensa
+    from app.modules.financeiro.models import Cobranca
+
+    t = db.get(Titulo, titulo_id)
+    if t is None:
+        return True
+    situacoes = list(db.scalars(select(Cobranca.situacao).where(Cobranca.titulo_id == titulo_id)))
+    return _suspensa(titulo_status=t.status, situacoes=situacoes)

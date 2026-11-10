@@ -177,3 +177,53 @@ def validar_cancelamento(*, status: str, tem_baixa_ativa: bool, motivo: str | No
 
 def pode_cancelar(status: str, tem_baixa_ativa: bool) -> bool:
     return status != "cancelado" and not tem_baixa_ativa
+
+
+# ---------------------------------------------------------------- aging (Dashboards financeiros)
+FAIXAS_AGING = ("a_vencer", "1_30", "31_60", "61_90", "90_mais")
+ROTULOS_AGING = {"a_vencer": "A vencer", "1_30": "Vencidos 1–30 dias", "31_60": "Vencidos 31–60 dias",
+                 "61_90": "Vencidos 61–90 dias", "90_mais": "Vencidos há mais de 90 dias"}
+
+
+@dataclass(frozen=True)
+class TituloAging:
+    direcao: str
+    status: str
+    vencimento: date
+    saldo: Decimal
+
+
+@dataclass(frozen=True)
+class FaixaAging:
+    faixa: str
+    rotulo: str
+    valor: Decimal
+    quantidade: int
+
+
+def faixa_aging(vencimento: date, hoje: date) -> str:
+    """A vencer (vence hoje ou depois) · 1–30 · 31–60 · 61–90 · 90+ dias de atraso."""
+    dias = (hoje - vencimento).days
+    if dias <= 0:
+        return "a_vencer"
+    if dias <= 30:
+        return "1_30"
+    if dias <= 60:
+        return "31_60"
+    if dias <= 90:
+        return "61_90"
+    return "90_mais"
+
+
+def aging(titulos: list[TituloAging], hoje: date, direcao: str = "receber") -> list[FaixaAging]:
+    """Saldo aberto por faixa de atraso. Só títulos confirmados em aberto (aberto/parcial) com saldo > 0;
+    rascunho, cancelado e liquidado ficam fora. O pipeline comercial nunca entra aqui."""
+    valores = dict.fromkeys(FAIXAS_AGING, ZERO)
+    qtd = dict.fromkeys(FAIXAS_AGING, 0)
+    for t in titulos:
+        if t.direcao != direcao or t.status not in EM_ABERTO or dinheiro(t.saldo) <= 0:
+            continue
+        f = faixa_aging(t.vencimento, hoje)
+        valores[f] += dinheiro(t.saldo)
+        qtd[f] += 1
+    return [FaixaAging(f, ROTULOS_AGING[f], arredondar(valores[f]), qtd[f]) for f in FAIXAS_AGING]

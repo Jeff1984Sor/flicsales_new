@@ -3,7 +3,7 @@ frequência (mensal/trimestral/anual, contada a partir do mês de início). Dia 
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from app.domain import RegraViolada
@@ -87,5 +87,20 @@ def competencias_a_gerar(*, situacao: str, inicio: date, fim: date, frequencia: 
     for mes in range(primeiro, ultimo + 1, passo):
         comp = f"{mes // 12:04d}-{mes % 12 + 1:02d}"
         if comp not in existentes:
+            out.append(comp)
+    return out
+
+
+def proximas_competencias(*, situacao: str, inicio: date, fim: date, frequencia: str, dia_vencimento: int,
+                          hoje: date, horizonte_dias: int = 30, existentes: set[str]) -> list[str]:
+    """Para o worker: competências alinhadas à frequência, dentro da vigência, cujo vencimento cai entre hoje e
+    hoje + `horizonte_dias` e que ainda não têm título. Competências passadas não são geradas sozinhas (a tela gera)."""
+    if situacao != "ativa" or frequencia not in FREQUENCIAS:
+        return []
+    limite = hoje + timedelta(days=horizonte_dias)
+    out = []
+    for comp in competencias_a_gerar(situacao=situacao, inicio=inicio, fim=fim, frequencia=frequencia, ate=limite,
+                                     existentes=existentes):
+        if hoje <= vencimento_da_competencia(comp, dia_vencimento) <= limite:
             out.append(comp)
     return out
