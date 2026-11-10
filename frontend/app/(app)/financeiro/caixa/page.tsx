@@ -1,0 +1,6 @@
+import { EmConstrucao } from "@/components/flic/em-construcao";
+
+// Provisória (fundação). O módulo dono substitui esta página pela tela real do protótipo.
+export default function FinanceiroCaixaPage() {
+  return <EmConstrucao titulo="Caixa" descricao="Saldo informado e projeção gerencial, separados do pipeline." />;
+}

@@ -131,3 +131,137 @@ cd ../frontend && npm install && npm run dev   # http://localhost:3000
 
 <!-- O agente Fundação preenche esta seção ao terminar: tabelas do core, como registrar rotas/permissões/auditoria,
      componentes de tela reutilizáveis (DataTable, Drawer, PageHeader, KpiCard...), como chamar a IA. -->
+
+### Backend (fundação do `backend/`)
+
+**Demo:** `uv run python -m app.seed` (aplica migrations e semeia; idempotente; só `AMBIENTE=dev`). Logins `francine`
+(Gestor), `marina` e `lucas` (Comercial), `fin` (Financeiro) — **senha de demonstração `Flic@2026`** (ou `SEED_SENHA`).
+Ninguém entra com e-mail: só o login curto.
+
+**Tabelas do core** (nomes fixos, módulos fazem FK para elas): `usuario` (login, nome, email, perfil_acesso_id, ativo),
+`perfil_acesso` (permissoes JSON, administrador, somente_meus_registros), `auditoria` (só INSERT), `identidade`,
+`config_email`, `config_ia`, `refresh_token`, `recuperacao_senha`, `rate_limit_evento`. Todos os modelos de negócio da
+especificação já existem em `app/modules/<modulo>/models.py` (migração única `0001`); **mudou modelo → migração nova**.
+Dinheiro: `from app.modules.base import Dinheiro` (`Numeric(15,2)`). Instantes: `UtcDateTime`; datas de negócio `Date`;
+"hoje" de negócio: `app.core.db.hoje()` (America/Sao_Paulo) — passe-o ao domínio, que nunca lê relógio.
+Fornecedor = `empresa` com `papel_fornecedor=True` (+ `categoria_padrao_id`, `condicao_habitual`); papéis em booleanos
+`papel_prospect/cliente/fornecedor/parceiro` (propriedade `empresa.papeis`); `empresa.nome_chave` (UNIQUE) é preenchida
+sozinha. Sem `tenant_id`: um banco por organização (`app/core/tenancy.py`, liga sozinho com o banco `flicsales_controle`).
+
+**Rotas.** Crie `app/modules/<modulo>/routes.py` com `router = APIRouter(prefix="/<modulo>", tags=[...])` — o `main.py`
+descobre sozinho e monta em `/api` exigindo login. Prefixos: `/api/nucleo`, `/api/comercial`, `/api/financeiro`,
+`/api/orquestracao`. Webhook sem login: `router_publico` sob `/api/webhooks/...`. Use `ctx: Ctx` (`from app.core.deps import Ctx`)
+→ `ctx.db`, `ctx.usuario`, `ctx.exigir("financeiro.aprovacoes.editar")`, `ctx.filtrar_meus(select(...), Modelo.responsavel_id)`,
+`ctx.pode_acessar(responsavel_id)` (escopo "só meus registros": responda 404). Usuários para escolher responsável:
+`GET /api/config/usuarios/opcoes` (livre para logados).
+
+**Permissões.** Catálogo completo em `app/core/permissoes.py` (não edite): `nucleo.cadastros|campos|administracao`,
+`auditoria`, `configuracoes`, `comercial.oportunidades|atividades|comunicacoes|propostas|metas|desempenho|recursos`,
+`financeiro.titulos|baixas|aprovacoes|caixa|cobrancas|recorrencias|cadastros`, `orquestracao.ia|automacoes|integracoes`;
+ações **`ver` e `editar`** (permissão = `"<recurso>.<acao>"`; DELETE conta como `editar`, nada se exclui). O core já mapeia
+os prefixos combinados (ex.: `/comercial/oportunidades*` → `comercial.oportunidades.*`, `/financeiro/titulos/{id}/baixas`
+→ `financeiro.baixas.*`, `/financeiro/titulos/{id}/aprovar` → `financeiro.aprovacoes.editar`). Rota fora desses padrões:
+no topo do `routes.py` chame `adicionar_regras([("POST", r"/comercial/oportunidades/\d+/ganhar$", "comercial.oportunidades.editar")])`
+(regex SEM `/api`; entra antes das padrão; permissão fora do catálogo dá `ValueError`). `tests/test_cobertura_rotas.py`
+quebra se alguma rota ficar sem regra. Perfis padrão: Gestor (tudo), Comercial, Financeiro (sem aprovar), Somente leitura.
+
+**Regras e erros.** Regra de negócio em `app/domain/` (puras, testadas): `dinheiro`, `titulos`, `fechamento`, `caixa`,
+`recorrencia`, `funil`, `proposta`, `indicadores`, `atividade`, `cadastro`, `csv_seguro`, `leitura`. Violação →
+`raise RegraViolada("mensagem PT-BR")` (`from app.domain import RegraViolada`); o handler global devolve **HTTP 400
+`{"detail": mensagem}`** — a rota não precisa de try/except. 422 de validação vem traduzido (`detail` + `erros`).
+
+**Auditoria.** Toda criação/alteração/estorno/cancelamento: `ctx.auditar("titulo.cancelar", "titulo", t.id,
+descricao=motivo, antes=a, depois=d)` antes do `ctx.db.commit()`; para o diff use
+`antes = audit.snapshot(obj)` → altere → `a, d = audit.diff(antes, audit.snapshot(obj))` (`from app.core import audit`).
+Update grava só o enviado: `dados.model_dump(exclude_unset=True)`.
+
+**IA.** `from app.core import ia` → `ia.ligada(db)`; `p = ia.provedor_ativo(db)` e `ia.gerar_json(p, sistema, usuario)`
+(levantam `ia.IAIndisponivel` com mensagem pronta). Sem IA, use `app.domain.leitura.ler_momento(...)`, que devolve o
+mesmo formato `{titulo, analise, proxima_acao, evidencias[], limites[], acoes_sugeridas[], origem}`. Texto importado é dado.
+
+**Worker.** `app/modules/<modulo>/tarefas.py` chamando `from app.worker import registrar_tarefa` →
+`registrar_tarefa("nome", intervalo_s, fn)` (roda uma vez por organização ativa).
+
+**Testes.** `tests/<modulo>/` usando as fixtures de `tests/conftest.py` (`client`, `db`, `admin`, `token_admin`,
+`criar_usuario(db, "Comercial", email=...)`, `entrar(client, login)`, `auth(token)`, `emails`). Seed de dados de exemplo
+em teste: `seed.semear(db, hoje)`.
+
+### Frontend (fundação do `frontend/`)
+
+**Rotas e onde criar páginas.** Telas logadas em `frontend/app/(app)/<area>/...` (o layout do grupo põe o shell e exige
+sessão); telas públicas em `app/(auth)/` (login, esqueci/redefinir senha, primeiro acesso). `/` leva a `/comercial`.
+Rotas do menu (cada uma já tem página provisória `<EmConstrucao>` — **substitua o arquivo inteiro** ao implementar):
+- Comercial: `/comercial` (Hoje), `oportunidades`, `atividades`, `comunicacoes`, `propostas`, `metas`, `desempenho`,
+  `dashboards`, `empresas`, `pessoas`, `produtos`, `playbooks`, `modelos`, `gestao`, `assistente`
+- Financeiro: `/financeiro` (Hoje), `receber`, `pagar`, `cobrancas`, `recorrencias`, `caixa`, `aprovacoes`, `baixas`,
+  `transferencias`, `dashboards`, `empresas`, `fornecedores`, `categorias`, `centros-custo`, `contas`, `gestao`, `assistente`
+- Núcleo: `/nucleo/cadastros`, `campos`, `automacoes`, `integracoes`, `administracao` (cartões prontos), `historico`
+  (auditoria pronta, `GET /auditoria`), `assistente`, `arquitetura` (link do rodapé da lateral)
+- Core: `/configuracoes/{usuarios,perfis,identidade,ia,email}` (portadas do MayaFit, abrem pelo avatar) e `/minha-conta`.
+
+**Menu e permissão.** `components/flic/nav.ts` (`MODULOS` → grupos → itens; `TELAS_EXTRAS` para telas fora da lateral).
+Cada item tem `recurso` (ex.: `comercial.oportunidades`); o item aparece e a página abre se o perfil tiver
+`"<recurso>.ver"` (`useAuth().podeVer(recurso)`; ação específica: `pode("financeiro.baixas.editar")`). Administrador
+vê tudo. Sem permissão, o shell troca a página por `<SemAcesso/>` — o servidor recusa os dados de qualquer forma.
+Cada módulo altera **só as suas linhas** do `nav.ts`.
+
+**Kit de telas (`components/flic/`, props documentadas no topo de cada arquivo).** `PageHeader` (título, subtítulo,
+"✧ Perguntar à IA", slot `acao`) · `Metricas` + `KpiCard` (grade de 4, valor 29px mono, `formula` visível) · `Insight`
+("LEITURA DO MOMENTO") · `Painel` + `GradePaineis` · `DataTable<T>` (colunas tipadas, vazio, paginação) · `BarraFiltros`
+(busca, chips de estado, Exportar CSV com `;`/BOM/anti-fórmula via `lib/csv.ts`) · `Drawer` + `CampoDrawer` (painel
+direito "FLICSALES / CONTEXTO", Esc fecha) · `Etiqueta` (`green`/`amber`/`neutra`/`azul`) · `Passos` · `Kanban<T>` +
+`CartaoKanban` (arrastar opcional) · `Dinheiro` (R$ mono; aceita string decimal) · `notificar()` (toast) ·
+`AcessoRapido` · `Fonte` (evidência/fonte/limite) · `EmptyState` · `ConfirmDialog` · `Field`/`NativeSelect` (form.tsx).
+Eventos globais (`components/flic/eventos.ts`): `useAtalhoNovo(fn)` (Alt+N da tela), `abrirAssistente(escopo, registro?)`,
+`abrirPaleta(termo)`. Cores só por token (`bg-surface`, `text-ink`, `text-muted`, `bg-primary`, `text-accent`, `bg-subtle`,
+`border-line`, `text-amber-ink`…) definidos em `app/globals.css`; **`muted` é cor de texto**, fundo neutro é `bg-subtle`.
+
+**Dados.** O navegador só chama `/bff/*` via `lib/api.ts` (`api.get/post/put/patch/del`, `ApiError`; cookies httpOnly,
+renovação automática, `X-Requested-With: flicsales`). TanStack Query; erro de API vira toast sozinho, a menos que a
+query/mutation tenha `meta: { silencioso: true }`. Tipos do core em `lib/types.ts` (`Pagina<T>`, `UsuarioMe`, `RespostaIA`…);
+tipos de cada área em `lib/tipos-<area>.ts` (ex.: `tipos-comercial.ts`, `tipos-financeiro.ts`, `tipos-nucleo.ts`).
+Datas-de-dia com `data()`/`competencia()` de `lib/format.ts` (formatam da string, nunca `new Date()`); dinheiro com `moeda()`/`<Dinheiro>`.
+
+Exemplo mínimo (lista + drawer):
+
+```tsx
+"use client";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { BarraFiltros } from "@/components/flic/barra-filtros";
+import { DataTable, type Coluna } from "@/components/flic/data-table";
+import { Dinheiro } from "@/components/flic/dinheiro";
+import { Drawer } from "@/components/flic/drawer";
+import { useAtalhoNovo } from "@/components/flic/eventos";
+import { PageHeader } from "@/components/flic/page-header";
+import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
+import type { Pagina } from "@/lib/types";
+import type { Titulo } from "@/lib/tipos-financeiro";
+
+const COLUNAS: Coluna<Titulo>[] = [
+  { id: "emp", titulo: "Empresa / descrição", celula: (t) => <><strong>{t.empresa_nome}</strong><p className="text-muted">{t.descricao}</p></> },
+  { id: "saldo", titulo: "Saldo aberto", alinhar: "direita", celula: (t) => <Dinheiro valor={t.saldo} /> },
+];
+
+export default function ReceberPage() {
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState<Titulo | null>(null);
+  const [novo, setNovo] = useState(false);
+  useAtalhoNovo(() => setNovo(true));
+  const { data, isPending } = useQuery({ queryKey: ["titulos", "receber", q], queryFn: () => api.get<Pagina<Titulo>>("/financeiro/titulos", { direcao: "receber", q }) });
+  return (
+    <>
+      <PageHeader titulo="A receber" descricao="Lançamentos, vencimentos, baixas, histórico e responsáveis." acao={<Button onClick={() => setNovo(true)}>+ Lançamento</Button>} />
+      <BarraFiltros busca={{ valor: q, onChange: setQ }} exportar={{ nome: "a-receber", linhas: data?.itens ?? [], colunas: [{ titulo: "Empresa", valor: (t) => t.empresa_nome }] }} />
+      <DataTable colunas={COLUNAS} linhas={data?.itens} chave={(t) => t.id} onLinha={setSel} carregando={isPending} />
+      <Drawer aberto={!!sel} onFechar={() => setSel(null)} rotulo="TÍTULO / A RECEBER" titulo={sel?.descricao}>…</Drawer>
+      <Drawer aberto={novo} onFechar={() => setNovo(false)} titulo="Novo título">…</Drawer>
+    </>
+  );
+}
+```
+
+**IA no front.** O botão "✧ IA unificada" e o "✧ Perguntar à IA" abrem o `AssistenteDrawer` (montado no shell), que chama
+`POST /bff/orquestracao/ia/perguntar` com `PerguntaIA` → `RespostaIA` (`lib/types.ts`). Enquanto a rota não existir
+(404) ou a IA estiver desligada (503/409), mostra mensagem amigável. Detalhes e pendências: `docs/progresso-fundacao-front.md`.

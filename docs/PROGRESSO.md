@@ -13,6 +13,11 @@
 - Portas e servidor de produção: a VPS compartilhada já usa 10001/10002 para o flicsales antigo. Sugestão: 10011 (API) / 10012 (web). Confirmar quando formos publicar.
 - Domínio: o novo substitui `flicsales.com.br` ou roda em outro endereço até a migração?
 - Provedor de IA padrão (OpenAI ou Gemini, ambos plugáveis na tela).
+- Perfis Comercial e Financeiro: o CLAUDE.md diz "leitura de cadastros", mas os dois menus têm Empresas/Pessoas/Fornecedores
+  e a empresa nasce dentro da oportunidade. A Fundação deu `nucleo.cadastros.editar` aos dois (ajustável na matriz de perfis).
+  Confirmar. (docs/progresso-fundacao.md)
+- Fornecedor = empresa com papel fornecedor (+ categoria padrão e condição habitual), sem tabela própria. Confirmar.
 
 ## Registro
 - 10/11/2026 — Projeto criado. Protótipo salvo em `docs/prototipo/`. Especificação em `docs/ESPECIFICACAO.md`.
+- 10/11/2026 — Fundação backend: core do MayaFit portado (auth, perfis, permissões, auditoria, IA, um banco por organização), todos os modelos + migração 0001, domínio com testes, seed do protótipo. Detalhes em `docs/progresso-fundacao.md`.

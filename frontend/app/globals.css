@@ -1,0 +1,253 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Identidade visual do FlicSales OS (protótipo docs/prototipo/flicsales-prototipo.html).
+ * Componentes usam SÓ estes tokens (bg-surface, text-ink, text-muted, bg-primary, text-accent, border-line…).
+ * Nada de hex solto em componente.
+ *
+ * Observação sobre nomes herdados do shadcn:
+ *  - `muted` aqui é a COR DE TEXTO secundário (#596579). Fundo neutro suave é `bg-subtle`.
+ *  - `accent` é o turquesa da IA e do marcador do item ativo (#00D1C1). Hover neutro é `bg-subtle`.
+ */
+@theme inline {
+  /* tokens FlicSales */
+  --color-ink: var(--ink);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-electric: var(--electric);
+  --color-on-electric: var(--on-electric);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted);
+  --color-line: var(--line);
+  --color-amber: var(--amber);
+  --color-amber-ink: var(--amber-ink);
+  --color-subtle: var(--subtle);
+  --color-tint: var(--tint);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
+
+  /* estados (sempre com rótulo; cor nunca é o único sinal) */
+  --color-success: var(--success);
+  --color-success-ink: var(--success-ink);
+  --color-warning: var(--amber);
+  --color-warning-ink: var(--amber-ink);
+  --color-danger: var(--danger);
+  --color-danger-ink: var(--danger-ink);
+  --color-info: var(--electric);
+  --color-info-ink: var(--primary);
+  /* apelidos herdados das telas do core portadas (usuários, perfis, identidade…) */
+  --color-brand: var(--primary);
+  --color-brand-foreground: var(--primary-foreground);
+  --color-navy: var(--primary);
+
+  /* semântica shadcn/ui */
+  --color-background: var(--bg);
+  --color-foreground: var(--ink);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--ink);
+  --color-secondary: var(--tint);
+  --color-secondary-foreground: var(--primary);
+  --color-destructive: var(--danger);
+  --color-border: var(--line);
+  --color-input: var(--line);
+  --color-ring: var(--accent);
+  --color-chart-1: var(--electric);
+  --color-chart-2: var(--primary);
+  --color-chart-3: var(--accent);
+  --color-chart-4: var(--amber);
+  --color-chart-5: var(--ink);
+
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains);
+  --font-heading: var(--font-inter);
+
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 20px;
+  --radius-4xl: 24px;
+
+  --animate-shimmer: shimmer 2.2s linear infinite;
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+}
+
+:root {
+  --ink: #0b1020;
+  --primary: #0057d9;
+  --primary-foreground: #ffffff;
+  --electric: #0a84ff;
+  --on-electric: #0b1020;
+  --accent: #00d1c1;
+  --accent-foreground: #0b1020;
+  --bg: #f5f8ff;
+  --surface: #ffffff;
+  --muted: #596579;
+  --line: #a8b0bd55;
+  --amber: #e9a23b;
+  --amber-ink: #8a5a0b;
+  --subtle: #0a84ff0d;
+  --tint: #0a84ff12;
+  --success: #00a99b;
+  --success-ink: #00756c;
+  --danger: #c93c3c;
+  --danger-ink: #b02f2f;
+
+  --sidebar: #0b1020;
+  --sidebar-foreground: #a8b0bd;
+  --sidebar-accent: #ffffff0f;
+  --sidebar-border: #ffffff14;
+
+  /* medidas do shell (protótipo) */
+  --tb: 73px;
+  --sb: 232px;
+  --faixa: 0px;
+  --radius: 10px;
+}
+
+.dark {
+  --ink: #e8edf7;
+  --primary: #2f7bff;
+  --primary-foreground: #ffffff;
+  --electric: #3d9bff;
+  --on-electric: #050812;
+  --accent: #00d1c1;
+  --accent-foreground: #061016;
+  --bg: #070b16;
+  --surface: #0f1626;
+  --muted: #95a1b5;
+  --line: #a8b0bd2e;
+  --amber: #f0b456;
+  --amber-ink: #f0b456;
+  --subtle: #3d9bff12;
+  --tint: #3d9bff1f;
+  --success: #19c2b3;
+  --success-ink: #4fd9cc;
+  --danger: #e05a5a;
+  --danger-ink: #f08a8a;
+
+  --sidebar: #050812;
+  --sidebar-foreground: #a8b0bd;
+  --sidebar-accent: #ffffff0d;
+  --sidebar-border: #ffffff12;
+}
+
+html.ambiente-hml {
+  --faixa: 22px;
+}
+
+@layer base {
+  * {
+    @apply border-line outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-bg text-ink;
+    font-size: 14px;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--electric) 28%, transparent);
+  }
+  /* foco visível do protótipo: anel turquesa */
+  :where(a, button, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  /* card padrão: branco, borda fina, raio 10px */
+  .card-surface {
+    @apply rounded-[10px] border border-line bg-surface;
+  }
+  /* rótulo em caixa alta espaçada */
+  .eyebrow {
+    @apply text-[10px] font-bold tracking-[1.6px] text-primary uppercase;
+  }
+  /* números e dinheiro */
+  .num {
+    @apply font-mono tabular-nums tracking-tight;
+  }
+  .skeleton-shimmer {
+    background-image: linear-gradient(90deg, var(--subtle) 25%, var(--tint) 50%, var(--subtle) 75%);
+    background-size: 200% 100%;
+  }
+  .card-hover {
+    transition:
+      transform 200ms ease-out,
+      box-shadow 200ms ease-out;
+  }
+  .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px -16px color-mix(in oklab, var(--ink) 30%, transparent);
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* IA: brilho nos campos preenchidos e shimmer do "Pensando…" */
+@keyframes ia-glow {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 70%, transparent);
+  }
+  60% {
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 25%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+[data-ia="1"] {
+  animation: ia-glow 2s ease-out;
+  border-color: var(--accent) !important;
+}
+@keyframes ia-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.ia-shimmer {
+  background-image: linear-gradient(90deg, transparent 0%, color-mix(in oklab, var(--accent) 35%, transparent) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: ia-shimmer 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
