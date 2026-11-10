@@ -35,6 +35,8 @@ class Automacao(Base, Timestamped):
     conteudo: Mapped[str] = mapped_column(Text)
     revisar_condicoes: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     estado: Mapped[str] = mapped_column(String(10), default="rascunho", server_default="rascunho")
+    # 0002: eventos anteriores à (última) ativação não disparam; o motor só olha para frente
+    ativada_em: Mapped[datetime | None] = mapped_column(UtcDateTime())
 
 
 class AutomacaoExecucao(Base):
@@ -52,6 +54,9 @@ class AutomacaoExecucao(Base):
     simulacao: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     erro: Mapped[str | None] = mapped_column(Text)
     tentativas: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # 0002: o que a execução criou ("atividade:42") — base da prevenção de ciclo; e o resumo legível do histórico
+    registro_criado: Mapped[str | None] = mapped_column(String(80))
+    detalhe: Mapped[str | None] = mapped_column(Text)
 
 
 class Integracao(Base, Timestamped):
@@ -72,6 +77,10 @@ class Integracao(Base, Timestamped):
     responsavel_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.id"))
     conectado_em: Mapped[datetime | None] = mapped_column(UtcDateTime())
     ultimo_erro: Mapped[str | None] = mapped_column(Text)
+    # 0002: "Testar conexão" (WhatsApp/Google/Outlook validam o formato e ficam aguardando o conector oficial)
+    testado_em: Mapped[datetime | None] = mapped_column(UtcDateTime())
+    aguardando_conector: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+
 
 
 class IaConversa(Base, Timestamped):
