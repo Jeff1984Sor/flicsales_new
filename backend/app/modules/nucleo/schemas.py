@@ -85,9 +85,10 @@ class EmpresaSaida(Saida):
     condicao_habitual: str | None
     ativo: bool
     criado_em: datetime
-    oportunidades: int = 0
-    titulos_receber: int = 0
-    saldo_receber: Decimal = Decimal("0.00")
+    # None = o perfil não vê (oportunidades: comercial.oportunidades.ver; títulos/saldo: financeiro.titulos.ver)
+    oportunidades: int | None = 0
+    titulos_receber: int | None = 0
+    saldo_receber: Decimal | None = Decimal("0.00")
 
 
 class ContatoResumo(Saida):

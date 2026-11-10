@@ -76,15 +76,15 @@ export function TelaEmpresas({ embutida, papelPadrao = "", idInicial = null }: {
     },
     // Cadastros mestres (embutida): coluna Origem, como no protótipo
     ...(embutida ? [{ id: "origem", titulo: "Origem", celula: (e: Empresa) => e.origem || "—" }] : []),
-    { id: "opp", titulo: "Oportunidades", alinhar: "direita", celula: (e) => <span className="num">{e.oportunidades}</span> },
+    { id: "opp", titulo: "Oportunidades", alinhar: "direita", celula: (e) => <span className="num">{e.oportunidades ?? "—"}</span> },
     {
       id: "receber",
       titulo: "A receber",
       alinhar: "direita",
       celula: (e) => (
         <>
-          <span className="num">{e.titulos_receber}</span>
-          {Number(e.saldo_receber) > 0 && (
+          <span className="num">{e.titulos_receber ?? "—"}</span>
+          {e.saldo_receber != null && Number(e.saldo_receber) > 0 && (
             <p className="text-muted">
               <Dinheiro valor={e.saldo_receber} />
             </p>

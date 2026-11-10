@@ -282,16 +282,21 @@ def titulos_aging(db: Session) -> list[dom.TituloAging]:
         select(Titulo.direcao, Titulo.status, Titulo.vencimento, Titulo.saldo).where(Titulo.status.in_(dom.EM_ABERTO)))]
 
 
-def vencidos_a_receber(db: Session, hoje: date) -> list[Titulo]:
-    return list(db.scalars(select(Titulo).where(
-        Titulo.direcao == "receber", Titulo.status.in_(dom.EM_ABERTO), Titulo.vencimento < hoje, Titulo.saldo > 0)
+def _sem_filtro(q):
+    return q
+
+
+def vencidos_a_receber(db: Session, hoje: date, escopo=_sem_filtro) -> list[Titulo]:
+    """`escopo(select)` aplica o "só meus registros" do perfil (ver routes._meus_titulos)."""
+    return list(db.scalars(escopo(select(Titulo).where(
+        Titulo.direcao == "receber", Titulo.status.in_(dom.EM_ABERTO), Titulo.vencimento < hoje, Titulo.saldo > 0))
         .order_by(Titulo.vencimento, Titulo.id)))
 
 
-def aprovacoes_pendentes(db: Session) -> int:
-    return db.scalar(select(func.count(Titulo.id)).where(
+def aprovacoes_pendentes(db: Session, escopo=_sem_filtro) -> int:
+    return db.scalar(escopo(select(func.count(Titulo.id)).where(
         Titulo.direcao == "pagar", Titulo.status != "cancelado",
-        or_(Titulo.aprovacao.is_(None), Titulo.aprovacao != "aprovado"))) or 0
+        or_(Titulo.aprovacao.is_(None), Titulo.aprovacao != "aprovado")))) or 0
 
 
 def rotulo_situacao(s: str) -> str:

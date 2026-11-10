@@ -191,6 +191,15 @@ export function OportunidadeDrawer({ id, onFechar }: { id: number | null; onFech
                 </Button>
               </section>
             )}
+            {o.recebiveis.length === 0 && o.recebiveis_preparados > 0 && (
+              <section className="mt-6">
+                <h3 className="text-sm font-bold">Recebíveis de origem</h3>
+                <p className="mt-2 text-sm text-muted">
+                  {o.recebiveis_preparados} recebível(is) preparado(s) para o Financeiro. Valores e situação ficam com
+                  quem tem acesso aos títulos.
+                </p>
+              </section>
+            )}
 
             <section className="card-surface mt-6 p-4">
               <h3 className="text-sm font-bold">Gestão da oportunidade</h3>

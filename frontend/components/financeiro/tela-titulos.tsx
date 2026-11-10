@@ -7,6 +7,7 @@
  * abre o detalhe (links do Hoje e de outras telas).
  */
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Download } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -15,11 +16,12 @@ import { DataTable, type Coluna } from "@/components/flic/data-table";
 import { Dinheiro } from "@/components/flic/dinheiro";
 import { useAtalhoNovo } from "@/components/flic/eventos";
 import { PageHeader } from "@/components/flic/page-header";
+import { notificar } from "@/components/flic/toast";
 import { Button } from "@/components/ui/button";
 import { useDebounce } from "@/hooks/use-debounce";
 import { api } from "@/lib/api";
-import type { ColunaCsv } from "@/lib/csv";
-import { data } from "@/lib/format";
+import { baixarCsv, type ColunaCsv } from "@/lib/csv";
+import { data, numero } from "@/lib/format";
 import type { ContagensEstado, Direcao, FiltroEstado, Titulo } from "@/lib/tipos-financeiro";
 import type { Pagina } from "@/lib/types";
 
@@ -38,6 +40,7 @@ const CHIPS: { valor: FiltroEstado; rotulo: string }[] = [
 ];
 
 const POR_PAGINA = 50;
+const POR_PAGINA_EXPORTAR = 200; // máximo aceito por GET /financeiro/titulos
 
 export function TelaTitulos({ direcao }: { direcao: Direcao }) {
   const pagar = direcao === "pagar";
@@ -122,6 +125,31 @@ export function TelaTitulos({ direcao }: { direcao: Direcao }) {
     },
   ];
 
+  // Exporta TODOS os títulos com os filtros atuais (não só a página visível): busca página a página no máximo
+  // permitido pela API e avisa quantos foram exportados.
+  const [exportando, setExportando] = useState(false);
+  async function exportarTudo() {
+    setExportando(true);
+    try {
+      const todos: Titulo[] = [];
+      for (let p = 1; ; p++) {
+        const r = await api.get<Pagina<Titulo>>("/financeiro/titulos", { direcao, estado, q: busca, pagina: p, por_pagina: POR_PAGINA_EXPORTAR });
+        todos.push(...r.itens);
+        if (r.itens.length === 0 || todos.length >= r.total) break;
+      }
+      if (todos.length === 0) {
+        notificar("Nada para exportar com estes filtros.");
+        return;
+      }
+      baixarCsv(pagar ? "a-pagar" : "a-receber", csv, todos);
+      notificar.sucesso(`${numero(todos.length)} título(s) exportado(s) com os filtros atuais.`);
+    } catch (e) {
+      notificar.erro(e instanceof Error ? e.message : "Não foi possível exportar agora. Tente de novo.");
+    } finally {
+      setExportando(false);
+    }
+  }
+
   const csv: ColunaCsv<Titulo>[] = [
     { titulo: "Empresa", valor: (t) => t.empresa_nome },
     { titulo: "Descrição", valor: (t) => t.descricao },
@@ -161,8 +189,12 @@ export function TelaTitulos({ direcao }: { direcao: Direcao }) {
             setPagina(1);
           },
         }}
-        exportar={{ nome: pagar ? "a-pagar" : "a-receber", colunas: csv, linhas: lista.data?.itens ?? [] }}
-      />
+      >
+        <Button variant="outline" className="sm:ml-auto" disabled={exportando} onClick={exportarTudo}>
+          <Download className="size-4" />
+          {exportando ? "Exportando…" : "Exportar CSV"}
+        </Button>
+      </BarraFiltros>
       <DataTable
         colunas={colunas}
         linhas={lista.data?.itens}

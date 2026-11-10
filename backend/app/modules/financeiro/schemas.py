@@ -368,11 +368,11 @@ class FilaCobranca(Schema):
 
 class HojeOut(Schema):
     hoje: date
-    saldo_gerencial: Indicador
+    saldo_gerencial: Indicador | None  # None = perfil sem financeiro.caixa.ver (a tela esconde o KPI)
     recebiveis_vencidos: Indicador
     recebiveis_vencidos_qtd: int
-    aprovacoes_pendentes: int
-    recorrencias_ativas: int
+    aprovacoes_pendentes: int | None  # None = perfil não vê contas a pagar
+    recorrencias_ativas: int | None  # None = perfil sem financeiro.recorrencias.ver
     fila_cobranca: list[FilaCobranca]
     leitura: dict[str, Any]
     ia_ligada: bool

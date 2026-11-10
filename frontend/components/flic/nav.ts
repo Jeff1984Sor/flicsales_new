@@ -134,7 +134,7 @@ export const MODULOS: Modulo[] = [
         itens: [
           { label: "Hoje", href: "/financeiro", icone: Sun, recurso: "financeiro.titulos", exato: true },
           { label: "A receber", href: "/financeiro/receber", icone: ReceiptText, recurso: "financeiro.titulos" },
-          { label: "A pagar", href: "/financeiro/pagar", icone: HandCoins, recurso: "financeiro.titulos" },
+          { label: "A pagar", href: "/financeiro/pagar", icone: HandCoins, recurso: "financeiro.aprovacoes" },
           { label: "Cobranças e acordos", href: "/financeiro/cobrancas", icone: ClipboardList, recurso: "financeiro.cobrancas" },
           { label: "Recorrências", href: "/financeiro/recorrencias", icone: Repeat, recurso: "financeiro.recorrencias" },
           { label: "Caixa", href: "/financeiro/caixa", icone: Wallet, recurso: "financeiro.caixa" },
@@ -191,8 +191,8 @@ export const MODULOS: Modulo[] = [
  */
 export const TELAS_EXTRAS: (NavItem & { modulo: ModuloId; grupo: string })[] = [
   { label: "Arquitetura e escopo", href: "/nucleo/arquitetura", icone: Network, modulo: "nucleo", grupo: "Plataforma" },
-  { label: "Usuários", href: "/configuracoes/usuarios", icone: Users, recurso: "configuracoes", modulo: "nucleo", grupo: "Configurações" },
-  { label: "Perfis de acesso", href: "/configuracoes/perfis", icone: ShieldCheck, recurso: "configuracoes", modulo: "nucleo", grupo: "Configurações" },
+  { label: "Usuários", href: "/configuracoes/usuarios", icone: Users, recurso: "nucleo.administracao", modulo: "nucleo", grupo: "Configurações" },
+  { label: "Perfis de acesso", href: "/configuracoes/perfis", icone: ShieldCheck, recurso: "nucleo.administracao", modulo: "nucleo", grupo: "Configurações" },
   { label: "Identidade", href: "/configuracoes/identidade", icone: Palette, recurso: "configuracoes", modulo: "nucleo", grupo: "Configurações" },
   { label: "Inteligência Artificial", href: "/configuracoes/ia", icone: Sparkles, recurso: "configuracoes", modulo: "nucleo", grupo: "Configurações" },
   { label: "E-mail", href: "/configuracoes/email", icone: Mail, recurso: "configuracoes", modulo: "nucleo", grupo: "Configurações" },

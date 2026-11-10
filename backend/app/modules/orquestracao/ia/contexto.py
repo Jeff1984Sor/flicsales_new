@@ -18,7 +18,9 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.modules.comercial.models import Atividade, Comunicacao, Oportunidade
+from app.modules.comercial.servico import comunicacao_visivel
 from app.modules.financeiro.models import Titulo
+from app.modules.financeiro.servico import pode_ver_pagar
 from app.modules.nucleo.models import Empresa
 from app.modules.orquestracao.ia.ferramentas import Coleta, Foco
 from app.modules.orquestracao.ia.formato import FORMATO_ANALISE, FORMATO_RESPOSTA
@@ -86,7 +88,7 @@ def resolver_foco(ctx, tipo: str, rid: int) -> Foco:
     if tipo == "titulo":
         ctx.exigir("financeiro.titulos.ver")
         t = db.get(Titulo, rid)
-        if t is None or not ctx.pode_acessar(t.responsavel_id):
+        if t is None or not ctx.pode_acessar(t.responsavel_id) or (t.direcao == "pagar" and not pode_ver_pagar(ctx)):
             raise _404("Título")
         return Foco(tipo, rid, t.descricao, titulo_id=t.id, empresa_id=t.empresa_id)
     if tipo == "empresa":
@@ -104,12 +106,8 @@ def resolver_foco(ctx, tipo: str, rid: int) -> Foco:
     if tipo == "comunicacao":
         ctx.exigir("comercial.comunicacoes.ver")
         x = db.get(Comunicacao, rid)
-        if x is None:
+        if x is None or not comunicacao_visivel(ctx, x):  # mesma regra da tela Comercial
             raise _404("Comunicação")
-        if x.oportunidade_id:
-            o = db.get(Oportunidade, x.oportunidade_id)
-            if o is not None and not ctx.pode_acessar(o.responsavel_id):
-                raise _404("Comunicação")
         return Foco(tipo, rid, x.titulo or x.canal, comunicacao_id=x.id, oportunidade_id=x.oportunidade_id,
                     empresa_id=x.empresa_id)
     raise HTTPException(400, "Tipo de registro não suportado pelo assistente.")

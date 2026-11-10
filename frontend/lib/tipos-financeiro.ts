@@ -288,11 +288,14 @@ export interface FilaCobranca {
 
 export interface HojeFinanceiro {
   hoje: string;
-  saldo_gerencial: Indicador;
+  /** null = perfil sem financeiro.caixa.ver (esconde o KPI). */
+  saldo_gerencial: Indicador | null;
   recebiveis_vencidos: Indicador;
   recebiveis_vencidos_qtd: number;
-  aprovacoes_pendentes: number;
-  recorrencias_ativas: number;
+  /** null = perfil não vê contas a pagar. */
+  aprovacoes_pendentes: number | null;
+  /** null = perfil sem financeiro.recorrencias.ver. */
+  recorrencias_ativas: number | null;
   fila_cobranca: FilaCobranca[];
   leitura: Leitura;
   ia_ligada: boolean;

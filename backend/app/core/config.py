@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     # Um banco por organização (liga sozinho quando o banco `flicsales_controle` existe; ver app/core/tenancy.py):
     # cada organização nova ganha o endereço <slug>.<dominio_base> (ex.: "flicsales.com.br"). Vazio = só domínios cadastrados.
     dominio_base: str | None = None
+    # Nomes dos bancos no servidor (PostgreSQL compartilhado com outros sistemas: o prefixo evita colisão com o
+    # flicsales antigo e deixa hml e prod coexistirem, ex.: BANCO_CONTROLE=flicsalesos_controle_hml,
+    # BANCO_PREFIXO=flicsalesos_hml_). Organização <slug> → <BANCO_PREFIXO><slug com _>.
+    banco_controle: str = "flicsalesos_controle"
+    banco_prefixo: str = "flicsalesos_"
 
     # Dev: a API roda as tarefas periódicas em thread e aplica as migrations ao subir.
     # Produção: worker_embutido=false (o serviço app.worker faz) e migrations no deploy.
@@ -77,6 +82,12 @@ class Settings(BaseSettings):
                 Fernet(self.master_key_anterior.encode())
         except Exception:
             raise ValueError("MASTER_KEY inválida: use uma chave Fernet (base64 urlsafe de 32 bytes).") from None
+        import re
+
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,40}", self.banco_controle):
+            raise ValueError("BANCO_CONTROLE inválido: use letras minúsculas, números e _ (até 41 caracteres).")
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,30}", self.banco_prefixo):
+            raise ValueError("BANCO_PREFIXO inválido: use letras minúsculas, números e _ (até 31 caracteres).")
         if self.ambiente == "dev":
             return self
         erros = []

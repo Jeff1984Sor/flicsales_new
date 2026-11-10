@@ -81,13 +81,16 @@ export default function FinanceiroHojePage() {
       )}
 
       <Metricas>
-        <KpiCard
-          rotulo="Saldo gerencial"
-          valor={<Dinheiro valor={h?.saldo_gerencial.valor} />}
-          detalhe={h?.saldo_gerencial.detalhe}
-          formula={h?.saldo_gerencial.formula}
-          carregando={isPending}
-        />
+        {/* o servidor só manda saldo/aprovações/recorrências a quem tem permissão (null = esconde o KPI) */}
+        {(isPending || h?.saldo_gerencial) && (
+          <KpiCard
+            rotulo="Saldo gerencial"
+            valor={<Dinheiro valor={h?.saldo_gerencial?.valor} />}
+            detalhe={h?.saldo_gerencial?.detalhe}
+            formula={h?.saldo_gerencial?.formula}
+            carregando={isPending}
+          />
+        )}
         <KpiCard
           rotulo="Recebíveis vencidos"
           valor={<Dinheiro valor={h?.recebiveis_vencidos.valor} />}
@@ -96,8 +99,12 @@ export default function FinanceiroHojePage() {
           tom={h && h.recebiveis_vencidos_qtd > 0 ? "atencao" : "padrao"}
           carregando={isPending}
         />
-        <KpiCard rotulo="Aprovações pendentes" valor={numero(h?.aprovacoes_pendentes)} detalhe="Contas a pagar" carregando={isPending} />
-        <KpiCard rotulo="Recorrências ativas" valor={numero(h?.recorrencias_ativas)} detalhe="Geração por competência" carregando={isPending} />
+        {(isPending || h?.aprovacoes_pendentes != null) && (
+          <KpiCard rotulo="Aprovações pendentes" valor={numero(h?.aprovacoes_pendentes)} detalhe="Contas a pagar" carregando={isPending} />
+        )}
+        {(isPending || h?.recorrencias_ativas != null) && (
+          <KpiCard rotulo="Recorrências ativas" valor={numero(h?.recorrencias_ativas)} detalhe="Geração por competência" carregando={isPending} />
+        )}
       </Metricas>
 
       <GradePaineis>

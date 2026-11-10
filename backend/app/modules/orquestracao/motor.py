@@ -88,7 +88,7 @@ def fotografar(db: Session, hoje: date, areas: set[str] | None = None) -> dom.Es
                 Atividade.status == "pendente", Atividade.concluida_em >= desde))):
             e.atividades.append(dom.AtividadeFoto(
                 a.id, a.assunto, a.tipo, a.status, a.prazo, a.responsavel_id, a.oportunidade_id, a.empresa_id,
-                empresas.get(a.empresa_id), a.concluida_em, frozenset(criadas.get(a.id, set()))))
+                empresas.get(a.empresa_id), a.concluida_em, frozenset(criadas.get(a.id, set())), a.origem))
     if "financeiro" in areas:
         contestados = set(db.scalars(select(Cobranca.titulo_id).where(Cobranca.situacao == "em_contestacao")))
         ultima_baixa = dict(db.execute(select(Baixa.titulo_id, func.max(Baixa.criado_em))

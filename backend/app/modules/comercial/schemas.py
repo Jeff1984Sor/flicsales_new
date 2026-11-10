@@ -151,7 +151,8 @@ class RecebivelOut(Schema):
 
 class OportunidadeDetalhe(OportunidadeOut):
     contexto: ContextoNegociacao
-    recebiveis: list[RecebivelOut] = []
+    recebiveis: list[RecebivelOut] = []  # vazio para quem não tem financeiro.titulos.ver
+    recebiveis_preparados: int = 0  # quantidade (sem valores) — visível a quem vê a oportunidade
     atividades_pendentes: int = 0
     comunicacoes: int = 0
     propostas: int = 0

@@ -32,6 +32,7 @@ from app.domain.indicadores import FORMULAS, ciclo_mediano, conversao, ticket_me
 from app.domain.titulos import status_exibido
 from app.modules.comercial.models import Atividade, Comunicacao, Etapa, Oportunidade
 from app.modules.financeiro.models import Baixa, Cobranca, Titulo, Transferencia
+from app.modules.financeiro.servico import filtrar_direcao_visivel
 from app.modules.nucleo.models import ContaFinanceira, Empresa, Pessoa
 
 LIMITE_ITENS = 40
@@ -170,7 +171,7 @@ def _desempenho(ctx, foco: Foco | None, c: Coleta) -> None:
 
 # ------------------------------------------------------------------------------------------------ financeiro
 def _titulos(ctx, foco: Foco | None, c: Coleta) -> None:
-    q = ctx.filtrar_meus(select(Titulo), Titulo.responsavel_id)
+    q = filtrar_direcao_visivel(ctx, ctx.filtrar_meus(select(Titulo), Titulo.responsavel_id))
     if foco and foco.titulo_id:
         q = q.where(Titulo.id == foco.titulo_id)
     elif foco and foco.oportunidade_id:

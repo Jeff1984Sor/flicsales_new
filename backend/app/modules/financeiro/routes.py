@@ -48,6 +48,7 @@ from app.modules.financeiro.schemas import (
     TransferenciaIn,
     TransferenciaOut,
 )
+from app.modules.financeiro.servico import filtrar_direcao_visivel, pode_ver_caixa, pode_ver_pagar
 from app.modules.nucleo.models import Categoria, CentroCusto, ContaFinanceira, Empresa
 
 router = APIRouter(prefix="/financeiro", tags=["financeiro"])
@@ -79,9 +80,20 @@ def _pagina(ctx: Ctx, consulta, pagina: int, por_pagina: int):
 # ================================================================ títulos
 def _titulo(ctx: Ctx, titulo_id: int, *, travar: bool = False) -> Titulo:
     t = ctx.db.get(Titulo, titulo_id, with_for_update=travar)
-    if t is None or not ctx.pode_acessar(t.responsavel_id):
+    if t is None or not ctx.pode_acessar(t.responsavel_id) or (t.direcao == "pagar" and not pode_ver_pagar(ctx)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Título não encontrado.")
     return t
+
+
+def _exigir_direcao(ctx: Ctx, direcao: str | None) -> None:
+    if direcao == "pagar" and not pode_ver_pagar(ctx):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Seu perfil de acesso vê só títulos a receber; contas a pagar "
+                                                       "exigem acesso a Aprovações ou Baixas.")
+
+
+def _meus_titulos(ctx: Ctx, consulta):
+    """Escopo do perfil sobre uma consulta que já tem `Titulo`: só meus registros + direções visíveis."""
+    return filtrar_direcao_visivel(ctx, ctx.filtrar_meus(consulta, Titulo.responsavel_id))
 
 
 def _filtro_estado(q, estado: str, h: date):
@@ -106,8 +118,10 @@ def _saida(ctx: Ctx, titulos: list[Titulo]) -> list[TituloOut]:
 
 @router.get("/titulos/opcoes", response_model=OpcoesFinanceiro)
 def opcoes(ctx: Ctx):
-    """Listas curtas para os formulários (empresas, categorias, centros de custo, contas)."""
+    """Listas curtas para os formulários (empresas, categorias, centros de custo, contas).
+    Contas financeiras só para quem vê o caixa ou registra baixas (precisa escolher a conta)."""
     db = ctx.db
+    ver_contas = pode_ver_caixa(ctx) or ctx.pode("financeiro.baixas.editar")
     return {
         "empresas": [{"id": e.id, "nome": e.nome, "cliente": e.papel_cliente or e.papel_prospect,
                       "fornecedor": e.papel_fornecedor}
@@ -117,13 +131,15 @@ def opcoes(ctx: Ctx):
         "centros_custo": [{"id": c.id, "nome": f"{c.nome} ({c.codigo})"} for c in db.scalars(
             select(CentroCusto).where(CentroCusto.ativo.is_(True)).order_by(CentroCusto.nome))],
         "contas": [{"id": c.id, "nome": c.nome, "data_base": c.data_base} for c in db.scalars(
-            select(ContaFinanceira).where(ContaFinanceira.ativo.is_(True)).order_by(ContaFinanceira.nome))],
+            select(ContaFinanceira).where(ContaFinanceira.ativo.is_(True)).order_by(ContaFinanceira.nome))]
+        if ver_contas else [],
     }
 
 
 @router.get("/titulos/contagens", response_model=dict[str, int])
 def contagens(ctx: Ctx, direcao: Literal["receber", "pagar"], q: str | None = None):
     """Números dos chips de estado (Todos, Aberto, Rascunho, Parcial, Liquidado, Cancelado, Vencido)."""
+    _exigir_direcao(ctx, direcao)
     h = hoje()
     base = ctx.filtrar_meus(_busca_titulos(select(Titulo.id).where(Titulo.direcao == direcao), q),
                             Titulo.responsavel_id)
@@ -137,6 +153,7 @@ def contagens(ctx: Ctx, direcao: Literal["receber", "pagar"], q: str | None = No
 def listar_titulos(ctx: Ctx, direcao: Literal["receber", "pagar"] | None = None, estado: EstadoTitulo = "todos",
                    q: str | None = None, empresa_id: int | None = None, origem_oportunidade_id: int | None = None,
                    pagina: int = Query(1, ge=1), por_pagina: int = Query(50, ge=1, le=200)):
+    _exigir_direcao(ctx, direcao)
     consulta = select(Titulo)
     if direcao:
         consulta = consulta.where(Titulo.direcao == direcao)
@@ -145,7 +162,7 @@ def listar_titulos(ctx: Ctx, direcao: Literal["receber", "pagar"] | None = None,
     if origem_oportunidade_id:
         consulta = consulta.where(Titulo.origem_oportunidade_id == origem_oportunidade_id)
     consulta = _busca_titulos(_filtro_estado(consulta, estado, hoje()), q)
-    consulta = ctx.filtrar_meus(consulta, Titulo.responsavel_id).order_by(Titulo.vencimento, Titulo.id)
+    consulta = _meus_titulos(ctx, consulta).order_by(Titulo.vencimento, Titulo.id)
     itens, total = _pagina(ctx, consulta, pagina, por_pagina)
     return Pagina[TituloOut](itens=_saida(ctx, itens), total=total, pagina=pagina, por_pagina=por_pagina)
 
@@ -173,6 +190,7 @@ def _aplicar_aprovacao(ctx: Ctx, t: Titulo, nova: str | None) -> None:
 
 @router.post("/titulos", response_model=TituloOut, status_code=201)
 def criar_titulo(dados: TituloIn, ctx: Ctx):
+    _exigir_direcao(ctx, dados.direcao)
     valor = dom.validar_valor(dados.valor_original)
     d = dados.model_dump(exclude={"rascunho", "aprovacao"})
     _validar_vinculos(ctx, d)
@@ -215,6 +233,9 @@ def editar_titulo(titulo_id: int, dados: TituloAtualizar, ctx: Ctx):
             raise RegraViolada(f"Informe {rotulo}.")
     _validar_vinculos(ctx, d)
     antes = audit.snapshot(t)
+    if dom.exige_nova_aprovacao(direcao=t.direcao, aprovacao=t.aprovacao,
+                                antes={c: getattr(t, c) for c in dom.CAMPOS_DA_ALCADA}, mudancas=d):
+        t.aprovacao, t.aprovado_por_id, t.aprovado_em = "pendente", None, None  # a alçada aprova de novo
     if "aprovacao" in d:
         _aplicar_aprovacao(ctx, t, d.pop("aprovacao"))
     if "valor_original" in d:
@@ -289,7 +310,7 @@ def registrar_baixa(titulo_id: int, dados: BaixaIn, ctx: Ctx):
 def listar_baixas(ctx: Ctx, situacao: Literal["todas", "confirmada", "estornada"] = "todas",
                   direcao: Literal["receber", "pagar"] | None = None, q: str | None = None,
                   pagina: int = Query(1, ge=1), por_pagina: int = Query(50, ge=1, le=200)):
-    consulta = select(Baixa).join(Titulo, Titulo.id == Baixa.titulo_id)
+    consulta = _meus_titulos(ctx, select(Baixa).join(Titulo, Titulo.id == Baixa.titulo_id))
     if situacao != "todas":
         consulta = consulta.where(Baixa.estornada.is_(situacao == "estornada"))
     if direcao:
@@ -308,6 +329,10 @@ def listar_baixas(ctx: Ctx, situacao: Literal["todas", "confirmada", "estornada"
 def estornar_baixa(baixa_id: int, dados: MotivoIn, ctx: Ctx):
     """Nunca apaga: a baixa fica com estornada=True, motivo, quem e quando; o título volta a ter saldo."""
     b = _404(ctx.db.get(Baixa, baixa_id), "Baixa")
+    try:
+        _titulo(ctx, b.titulo_id)  # fora do escopo do perfil = não existe
+    except HTTPException:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Baixa não encontrada.") from None
     op.estornar_baixa(ctx.db, baixa=b, motivo=dados.motivo, usuario=ctx.usuario)
     ctx.db.commit()
     return op.baixas_para_saida(ctx.db, [b])[0]
@@ -316,7 +341,8 @@ def estornar_baixa(baixa_id: int, dados: MotivoIn, ctx: Ctx):
 # ================================================================ aprovações
 @router.get("/aprovacoes", response_model=list[TituloOut])
 def listar_aprovacoes(ctx: Ctx, situacao: Literal["pendente", "aprovado", "todos"] = "pendente"):
-    consulta = select(Titulo).where(Titulo.direcao == "pagar", Titulo.status != "cancelado")
+    consulta = ctx.filtrar_meus(select(Titulo).where(Titulo.direcao == "pagar", Titulo.status != "cancelado"),
+                                Titulo.responsavel_id)
     if situacao == "pendente":
         consulta = consulta.where(or_(Titulo.aprovacao.is_(None), Titulo.aprovacao != "aprovado"))
     elif situacao == "aprovado":
@@ -388,10 +414,20 @@ def _validar_recorrencia(ctx: Ctx, d: dict):
                                        inicio=d["inicio"], fim=d["fim"], frequencia=d["frequencia"])
 
 
+def _recorrencia(ctx: Ctx, rec_id: int) -> Recorrencia:
+    r = ctx.db.get(Recorrencia, rec_id)
+    if r is None or not ctx.pode_acessar(r.responsavel_id) or (r.direcao == "pagar" and not pode_ver_pagar(ctx)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Recorrência não encontrada.")
+    return r
+
+
 @router.get("/recorrencias", response_model=list[RecorrenciaOut])
 def listar_recorrencias(ctx: Ctx, situacao: Literal["todas", "ativa", "pausada", "cancelada"] = "todas",
                         q: str | None = None):
-    consulta = select(Recorrencia).join(Empresa, Empresa.id == Recorrencia.empresa_id)
+    consulta = ctx.filtrar_meus(select(Recorrencia).join(Empresa, Empresa.id == Recorrencia.empresa_id),
+                                Recorrencia.responsavel_id)
+    if not pode_ver_pagar(ctx):
+        consulta = consulta.where(Recorrencia.direcao == "receber")
     if situacao != "todas":
         consulta = consulta.where(Recorrencia.situacao == situacao)
     if q:
@@ -402,7 +438,7 @@ def listar_recorrencias(ctx: Ctx, situacao: Literal["todas", "ativa", "pausada",
 
 @router.get("/recorrencias/{rec_id}", response_model=RecorrenciaOut)
 def detalhe_recorrencia(rec_id: int, ctx: Ctx):
-    return _rec_saida(ctx, [_404(ctx.db.get(Recorrencia, rec_id), "Recorrência")])[0]
+    return _rec_saida(ctx, [_recorrencia(ctx, rec_id)])[0]
 
 
 @router.post("/recorrencias", response_model=RecorrenciaOut, status_code=201)
@@ -419,7 +455,7 @@ def criar_recorrencia(dados: RecorrenciaIn, ctx: Ctx):
 
 @router.patch("/recorrencias/{rec_id}", response_model=RecorrenciaOut)
 def editar_recorrencia(rec_id: int, dados: RecorrenciaAtualizar, ctx: Ctx):
-    r = _404(ctx.db.get(Recorrencia, rec_id), "Recorrência")
+    r = _recorrencia(ctx, rec_id)
     d = dados.model_dump(exclude_unset=True)
     for campo in ("descricao", "direcao", "empresa_id", "valor_ciclo", "frequencia", "inicio", "fim",
                   "dia_vencimento", "situacao"):
@@ -440,7 +476,7 @@ def editar_recorrencia(rec_id: int, dados: RecorrenciaAtualizar, ctx: Ctx):
 @router.post("/recorrencias/{rec_id}/gerar", response_model=TituloOut, status_code=201)
 def gerar_competencia(rec_id: int, dados: GerarCompetenciaIn, ctx: Ctx):
     """Gera o título da competência em RASCUNHO (sem duplicar; dentro da vigência; alinhado à frequência)."""
-    r = _404(ctx.db.get(Recorrencia, rec_id), "Recorrência")
+    r = _recorrencia(ctx, rec_id)
     t = op.gerar_competencia(ctx.db, r, dados.competencia, ctx.usuario)
     ctx.db.commit()
     return _saida(ctx, [t])[0]
@@ -453,12 +489,24 @@ def titulos_contestados(ctx: Ctx):
     return {"titulo_ids": sorted(op.titulos_em_contestacao(ctx.db))}
 
 
+def _cobranca(ctx: Ctx, cobranca_id: int) -> Cobranca:
+    """Só meus registros: a cobrança é minha se sou responsável por ela ou pelo título cobrado."""
+    c = ctx.db.get(Cobranca, cobranca_id)
+    t = ctx.db.get(Titulo, c.titulo_id) if c else None
+    if c is None or t is None or not (ctx.pode_acessar(c.responsavel_id) or ctx.pode_acessar(t.responsavel_id)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Cobrança não encontrada.")
+    return c
+
+
 @router.get("/cobrancas", response_model=list[CobrancaOut])
 def listar_cobrancas(ctx: Ctx, situacao: Literal["todas", "em_acompanhamento", "promessa_pagamento",
                                                   "em_contestacao", "resolvida"] = "todas",
                      titulo_id: int | None = None, q: str | None = None):
     consulta = select(Cobranca).join(Titulo, Titulo.id == Cobranca.titulo_id).join(
         Empresa, Empresa.id == Titulo.empresa_id)
+    if ctx.somente_meus_registros():
+        consulta = consulta.where(or_(Cobranca.responsavel_id == ctx.usuario.id,
+                                      Titulo.responsavel_id == ctx.usuario.id))
     if situacao != "todas":
         consulta = consulta.where(Cobranca.situacao == situacao)
     if titulo_id:
@@ -474,13 +522,13 @@ def listar_cobrancas(ctx: Ctx, situacao: Literal["todas", "em_acompanhamento", "
 
 @router.get("/cobrancas/{cobranca_id}", response_model=CobrancaOut)
 def detalhe_cobranca(cobranca_id: int, ctx: Ctx):
-    return op.cobrancas_para_saida(ctx.db, [_404(ctx.db.get(Cobranca, cobranca_id), "Cobrança")], hoje())[0]
+    return op.cobrancas_para_saida(ctx.db, [_cobranca(ctx, cobranca_id)], hoje())[0]
 
 
 @router.post("/cobrancas", response_model=CobrancaOut, status_code=201)
 def criar_cobranca(dados: CobrancaIn, ctx: Ctx):
     t = ctx.db.get(Titulo, dados.titulo_id)
-    if t is None:
+    if t is None or not ctx.pode_acessar(t.responsavel_id):
         raise RegraViolada("Selecione um título a receber cadastrado.")
     _existe(ctx, Usuario, dados.responsavel_id, "Responsável não encontrado.")
     d = dados.model_dump()
@@ -499,7 +547,7 @@ def criar_cobranca(dados: CobrancaIn, ctx: Ctx):
 
 @router.patch("/cobrancas/{cobranca_id}", response_model=CobrancaOut)
 def editar_cobranca(cobranca_id: int, dados: CobrancaAtualizar, ctx: Ctx):
-    c = _404(ctx.db.get(Cobranca, cobranca_id), "Cobrança")
+    c = _cobranca(ctx, cobranca_id)
     t = ctx.db.get(Titulo, c.titulo_id)
     d = dados.model_dump(exclude_unset=True)
     for campo in ("assunto", "responsavel_id", "canal", "situacao", "historico"):
@@ -555,10 +603,12 @@ def dashboards(ctx: Ctx):
 
 @router.get("/hoje", response_model=HojeOut)
 def hoje_financeiro(ctx: Ctx):
-    """KPIs, fila de cobrança e a Leitura do momento DETERMINÍSTICA (app.domain.leitura), com ou sem IA."""
+    """KPIs, fila de cobrança e a Leitura do momento DETERMINÍSTICA (app.domain.leitura), com ou sem IA.
+    Respeita o perfil: saldo só com `financeiro.caixa.ver`, aprovações só para quem vê contas a pagar,
+    recorrências só com `financeiro.recorrencias.ver` (senão `null`); fila e totais no escopo "só meus registros"."""
     h = hoje()
-    cx = op.calcular_caixa(ctx.db)
-    vencidos = op.vencidos_a_receber(ctx.db, h)
+    escopo = lambda q: _meus_titulos(ctx, q)  # noqa: E731
+    vencidos = op.vencidos_a_receber(ctx.db, h, escopo)
     empresas = op._nomes(ctx.db, Empresa, {t.empresa_id for t in vencidos})
     contestados = op.titulos_em_contestacao(ctx.db, {t.id for t in vencidos})
     total_vencido = sum((t.saldo for t in vencidos), dom.ZERO)
@@ -566,15 +616,21 @@ def hoje_financeiro(ctx: Ctx):
     leitura = ler_momento(hoje=h, ia_ligada=ligada, titulos=[
         TituloResumo(t.id, empresas.get(t.empresa_id, "—"), t.descricao, t.direcao, t.status, t.vencimento, t.saldo)
         for t in vencidos if t.id not in contestados])
-    recorrencias = ctx.db.scalar(select(func.count(Recorrencia.id)).where(Recorrencia.situacao == "ativa")) or 0
+    recorrencias = None
+    if ctx.pode("financeiro.recorrencias.ver"):
+        recorrencias = ctx.db.scalar(ctx.filtrar_meus(
+            select(func.count(Recorrencia.id)).where(Recorrencia.situacao == "ativa"), Recorrencia.responsavel_id)) or 0
+    saldo = None
+    if pode_ver_caixa(ctx):
+        saldo = {"valor": op.calcular_caixa(ctx.db).projecao.saldo_atual, "detalhe": "Saldo inicial + baixas confirmadas",
+                 "formula": "Σ contas (saldo inicial + baixas não estornadas ± transferências)"}
     return {
         "hoje": h,
-        "saldo_gerencial": {"valor": cx.projecao.saldo_atual, "detalhe": "Saldo inicial + baixas confirmadas",
-                            "formula": "Σ contas (saldo inicial + baixas não estornadas ± transferências)"},
+        "saldo_gerencial": saldo,
         "recebiveis_vencidos": {"valor": total_vencido, "detalhe": f"{len(vencidos)} título(s) em aberto",
                                 "formula": "Σ saldo aberto a receber com vencimento antes de hoje"},
         "recebiveis_vencidos_qtd": len(vencidos),
-        "aprovacoes_pendentes": op.aprovacoes_pendentes(ctx.db),
+        "aprovacoes_pendentes": op.aprovacoes_pendentes(ctx.db, escopo) if pode_ver_pagar(ctx) else None,
         "recorrencias_ativas": recorrencias,
         "fila_cobranca": [{"titulo_id": t.id, "empresa_nome": empresas.get(t.empresa_id, "—"),
                            "descricao": t.descricao, "saldo": t.saldo, "vencimento": t.vencimento,

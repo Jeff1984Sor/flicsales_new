@@ -192,6 +192,23 @@ def test_prevencao_de_ciclo_atividade_atrasada(db, demo):
     assert resultado.get("executada", 0) >= 1  # outras atividades do seed atrasaram nesse meio-tempo
 
 
+def test_duas_automacoes_nao_disparam_em_cadeia(db, demo):
+    """A e B criam atividade quando uma atividade atrasa. A atividade criada por A não dispara B (nem a de B
+    dispara A): no máximo 1 atividade por automação por registro original, rodando o motor várias vezes."""
+    a = _criar_ativa(db, nome="A", gatilho="atividade_atrasada", conteudo="A: {{atividade.assunto}}")
+    b = _criar_ativa(db, nome="B", gatilho="atividade_atrasada", conteudo="B: {{atividade.assunto}}")
+    originais = set(db.scalars(select(Atividade.id).where(Atividade.origem != "automacao")))
+    for dias in (0, 5, 10):
+        motor.executar(db, hoje() + timedelta(days=dias))
+    criadas = list(db.scalars(select(Atividade).where(Atividade.origem == "automacao")))
+    assert criadas and all(x.assunto.count(":") == 1 for x in criadas)  # nada de "B: A: ..."
+    for auto in (a, b):
+        alvos = list(db.scalars(select(AutomacaoExecucao.registro).where(
+            AutomacaoExecucao.automacao_id == auto.id, AutomacaoExecucao.registro_criado.is_not(None))))
+        assert len(alvos) == len(set(alvos))  # 1 por registro original
+        assert {int(r.split(":")[1]) for r in alvos} <= originais
+
+
 def test_notificar_responsavel_vira_aviso(client, gestor, db, demo):
     _criar_ativa(db, area="financeiro", gatilho="saldo_abaixo_limite", acao="notificar", valor_esperado="999999",
                  responsavel_regra=None, conteudo="Saldo projetado {{caixa.saldo_projetado}} ({{caixa.formula}})")

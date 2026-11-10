@@ -85,6 +85,40 @@ def test_listar_com_busca_papel_contagens(gestor, db):
     assert pag["total"] == 2 and len(pag["itens"]) == 1
 
 
+def test_contagens_respeitam_permissao_do_modulo(client, gestor, db):
+    """Cadastro é compartilhado; os números do Comercial e do Financeiro, não: sem a permissão → null."""
+    from app.core.models import PerfilAcesso, Usuario
+    from app.core.security import hash_senha
+    from tests.conftest import SENHA, auth, entrar
+
+    a = gestor.post("/nucleo/empresas", {"nome": "Aurora Consultoria", "papeis": ["cliente"]}).json()
+    _vinculos(db, a["id"], gestor.usuario.id)
+    p = PerfilAcesso(nome="Só cadastros", permissoes=["nucleo.cadastros.ver"])
+    db.add(p)
+    db.commit()
+    db.add(Usuario(nome="cad", email="cad@x.com", login="cad", perfil_acesso_id=p.id, senha_hash=hash_senha(SENHA)))
+    db.commit()
+    h = auth(entrar(client, "cad").json()["access_token"])
+    [item] = client.get("/api/nucleo/empresas", headers=h).json()["itens"]
+    assert (item["oportunidades"], item["titulos_receber"], item["saldo_receber"]) == (None, None, None)
+    d = client.get(f"/api/nucleo/empresas/{a['id']}", headers=h).json()
+    assert (d["oportunidades"], d["titulos_receber"], d["saldo_receber"]) == (None, None, None)
+
+
+def test_contagens_respeitam_so_meus_registros(client, gestor, db):
+    from app.core import perfis
+    from tests.conftest import auth, criar_usuario, entrar
+
+    a = gestor.post("/nucleo/empresas", {"nome": "Aurora Consultoria", "papeis": ["cliente"]}).json()
+    _vinculos(db, a["id"], gestor.usuario.id)  # tudo do gestor
+    perfis.garantir_padrao(db)["Comercial"].somente_meus_registros = True
+    db.commit()
+    criar_usuario(db, "Comercial", email="mar@x.com")
+    h = auth(entrar(client, "mar").json()["access_token"])
+    d = client.get(f"/api/nucleo/empresas/{a['id']}", headers=h).json()
+    assert (d["oportunidades"], d["titulos_receber"], d["saldo_receber"]) == (0, 0, "0.00")
+
+
 def test_ver_detalhe_com_contatos(gestor):
     e = gestor.post("/nucleo/empresas", {"nome": "Aurora"}).json()
     gestor.post("/nucleo/pessoas", {"nome": "Paula", "empresa_id": e["id"]})

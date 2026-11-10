@@ -177,9 +177,19 @@ def test_atividade_atrasada_com_prevencao_de_ciclo():
                   a.AtividadeFoto(3, "De outra automação", "tarefa", "pendente", HOJE - timedelta(days=2), 7,
                                   criada_por_automacoes=frozenset({9})),
                   a.AtividadeFoto(4, "Concluída", "tarefa", "concluida", HOJE - timedelta(days=2), 7),
-                  a.AtividadeFoto(5, "No prazo", "tarefa", "pendente", HOJE, 7)]
+                  a.AtividadeFoto(5, "No prazo", "tarefa", "pendente", HOJE, 7),
+                  a.AtividadeFoto(6, "Origem automação", "tarefa", "pendente", HOJE - timedelta(days=2), 7,
+                                  origem="automacao")]
     ocs = a.ocorrencias(_regra("atividade_atrasada", id=1), a.Estado(atividades=atividades), HOJE)
-    assert [o.registro_id for o in ocs] == [1, 3]
+    # atividade criada por QUALQUER automação não dispara outra (A → B → A … seria um ciclo): profundidade 1
+    assert [o.registro_id for o in ocs] == [1]
+
+
+def test_reuniao_encerrada_criada_por_automacao_nao_dispara():
+    reuniao = a.AtividadeFoto(50, "Reunião", "reuniao", "concluida", HOJE, 7, 2, concluida_em=ATIVADA + timedelta(hours=1),
+                              origem="automacao")
+    e = a.Estado(oportunidades=[_opp(2)], atividades=[reuniao])
+    assert a.ocorrencias(_regra("reuniao_encerrada"), e, HOJE) == []
 
 
 # ---------------------------------------------------------------- gatilhos financeiros

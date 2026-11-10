@@ -54,3 +54,23 @@ def cobranca_suspensa(db: Session, titulo_id: int) -> bool:
         return True
     situacoes = list(db.scalars(select(Cobranca.situacao).where(Cobranca.titulo_id == titulo_id)))
     return _suspensa(titulo_status=t.status, situacoes=situacoes)
+
+
+# ---------------------------------------------------------------- quem vê o quê (usado também pela IA)
+VER_PAGAR = ("financeiro.aprovacoes.ver", "financeiro.baixas.ver")
+
+
+def pode_ver_pagar(ctx) -> bool:
+    """Contas a pagar são da operação financeira: `financeiro.titulos.ver` sozinho (perfil Comercial, "leitura dos
+    recebíveis") vê só títulos a RECEBER. Ver a pagar exige também Aprovações ou Baixas."""
+    return any(ctx.pode(p) for p in VER_PAGAR)
+
+
+def filtrar_direcao_visivel(ctx, consulta):
+    """Restringe uma consulta de títulos às direções que o perfil pode ver."""
+    return consulta if pode_ver_pagar(ctx) else consulta.where(Titulo.direcao == "receber")
+
+
+def pode_ver_caixa(ctx) -> bool:
+    """Saldo de caixa e contas financeiras: `financeiro.caixa.ver`."""
+    return ctx.pode("financeiro.caixa.ver")

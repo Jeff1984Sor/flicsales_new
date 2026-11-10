@@ -200,10 +200,12 @@ def listar(ctx: Ctx, funil_id: int | None = None, resultado: str | None = None, 
 
 def _detalhe(ctx: Ctx, op: Oportunidade) -> OportunidadeDetalhe:
     base = sv.serializar_oportunidades(ctx.db, [op])[0]
-    recebiveis = [RecebivelOut.model_validate(t) for t in recebiveis_da_oportunidade(ctx.db, op.id)] \
-        if ctx.pode("financeiro.titulos.ver") or op.resultado == "ganha" else []
+    titulos = recebiveis_da_oportunidade(ctx.db, op.id)
+    # valores, saldo e status dos recebíveis são do Financeiro: sem financeiro.titulos.ver, só a quantidade
+    recebiveis = [RecebivelOut.model_validate(t) for t in titulos] if ctx.pode("financeiro.titulos.ver") else []
     return OportunidadeDetalhe(**base.model_dump(), contexto=sv.contexto_negociacao(ctx.db, op),
-                               recebiveis=recebiveis, **sv.contagens_oportunidade(ctx.db, op.id))
+                               recebiveis=recebiveis, recebiveis_preparados=len(titulos),
+                               **sv.contagens_oportunidade(ctx.db, op.id))
 
 
 @router.get("/oportunidades/{op_id}", response_model=OportunidadeDetalhe)

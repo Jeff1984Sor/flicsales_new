@@ -1,6 +1,7 @@
 """Um banco por organização (cliente da FlicSales). Portado do MayaFit/MayaJus (app/core/tenancy.py).
 
-Sem o banco `flicsales_controle` (no mesmo servidor do DATABASE_URL; no SQLite, `data/flicsales_controle.db`) o sistema
+Sem o banco de controle (`BANCO_CONTROLE`, padrão `flicsalesos_controle`; no mesmo servidor do DATABASE_URL; no
+SQLite, `data/<BANCO_CONTROLE>.db`) o sistema
 roda com um banco só e a pasta `storage/` (dev e testes). Quando ele existe, o modo liga sozinho (nada no .env): o
 banco de controle (app/controle) diz quais organizações existem e em qual banco mora cada uma; a organização do pedido
 atual fica numa ContextVar e é ela que decide o banco de toda sessão (`SessionLocal`, `get_db`) e a pasta dos
@@ -38,7 +39,18 @@ class OrganizacaoNaoIdentificada(RuntimeError):
     """Pedido sem organização no modo multi: vira 401 "Sessão expirada" (main.py)."""
 
 
-BANCO_CONTROLE = "flicsales_controle"
+def banco_controle() -> str:
+    """Nome do banco de controle (BANCO_CONTROLE no .env; padrão `flicsalesos_controle`)."""
+    return settings.banco_controle
+
+
+def __getattr__(nome: str) -> Any:
+    """Compatibilidade: `tenancy.BANCO_CONTROLE` (lido pelo deploy/instalar.sh) agora vem do .env."""
+    if nome == "BANCO_CONTROLE":
+        return banco_controle()
+    raise AttributeError(f"module {__name__!r} has no attribute {nome!r}")
+
+
 CLAIM = "org"  # claim do JWT com o slug da organização
 
 _atual: contextvars.ContextVar[Organizacao | None] = contextvars.ContextVar("organizacao", default=None)
@@ -55,7 +67,7 @@ def forcar_controle(url: str | None) -> None:
 
 
 def url_controle() -> str:
-    return _url_forcada or url_do_banco(BANCO_CONTROLE)
+    return _url_forcada or url_do_banco(banco_controle())
 
 
 def _controle_existe() -> bool:
@@ -63,11 +75,11 @@ def _controle_existe() -> bool:
 
     from app.core.db import engine
 
-    url = make_url(url_do_banco(BANCO_CONTROLE))
+    url = make_url(url_do_banco(banco_controle()))
     if url.get_backend_name() == "sqlite":
         return Path(url.database or "").exists()
     with engine.connect() as conn:  # se o servidor estiver fora, falha alto (não liga o modo errado)
-        return bool(conn.scalar(text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": BANCO_CONTROLE}))
+        return bool(conn.scalar(text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": banco_controle()}))
 
 
 def multi() -> bool:

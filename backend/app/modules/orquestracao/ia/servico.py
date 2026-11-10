@@ -16,7 +16,8 @@ from app.core import audit
 from app.core import ia as core_ia
 from app.core.db import agora
 from app.domain import leitura as lei
-from app.modules.comercial.models import Comunicacao, Oportunidade
+from app.modules.comercial.models import Comunicacao
+from app.modules.comercial.servico import comunicacao_visivel
 from app.modules.orquestracao.ia import contexto as cx
 from app.modules.orquestracao.ia import formato, gateway, heuristica
 from app.modules.orquestracao.ia.ferramentas import Foco, coletar
@@ -122,12 +123,8 @@ def leitura_do_momento(ctx, modulo: str, hoje: date) -> dict[str, Any]:
 
 def analisar_comunicacao(ctx, comunicacao_id: int) -> dict[str, Any]:
     x = ctx.db.get(Comunicacao, comunicacao_id)
-    if x is None:
+    if x is None or not comunicacao_visivel(ctx, x):  # mesma regra da tela Comercial
         raise HTTPException(404, "Comunicação não encontrada.")
-    if x.oportunidade_id:
-        o = ctx.db.get(Oportunidade, x.oportunidade_id)
-        if o is not None and not ctx.pode_acessar(o.responsavel_id):
-            raise HTTPException(404, "Comunicação não encontrada.")
     fonte = f"Comercial › Comunicações › #{x.id} ({x.canal}{', ' + x.data.strftime('%d/%m/%Y') if x.data else ''})"
     origem, erro = "regras", None
     analise = heuristica.analisar(x.conteudo)

@@ -47,7 +47,7 @@ export function QualidadeDados() {
   const [par, setPar] = useState<Duplicidade | null>(null);
   const [fica, setFica] = useState<number | null>(null);
   const visivel = podeVer("nucleo.administracao");
-  const { data, isPending } = useQuery({
+  const { data, isPending, isError, refetch } = useQuery({
     queryKey: ["nucleo", "empresas", "duplicidades"],
     queryFn: () => api.get<Duplicidade[]>("/nucleo/duplicidades"),
     enabled: visivel,
@@ -71,8 +71,24 @@ export function QualidadeDados() {
 
   return (
     <>
-      <Painel titulo="Qualidade dos dados" acao={<Etiqueta tom={data?.length ? "amber" : "green"}>{isPending ? "Verificando…" : `${data?.length ?? 0} possível(is) duplicidade(s)`}</Etiqueta>}>
-        {!isPending && (data?.length ?? 0) === 0 ? (
+      <Painel
+        titulo="Qualidade dos dados"
+        acao={
+          isError ? (
+            <Etiqueta tom="amber">Verificação indisponível</Etiqueta>
+          ) : (
+            <Etiqueta tom={data?.length ? "amber" : "green"}>{isPending ? "Verificando…" : `${data?.length ?? 0} possível(is) duplicidade(s)`}</Etiqueta>
+          )
+        }
+      >
+        {isError ? (
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <p className="text-muted">Não foi possível verificar duplicidades agora. Nada foi alterado; tente de novo.</p>
+            <Button size="sm" variant="outline" onClick={() => refetch()}>
+              Tentar de novo
+            </Button>
+          </div>
+        ) : !isPending && (data?.length ?? 0) === 0 ? (
           <p className="text-sm text-muted">Nenhuma empresa duplicada encontrada. A verificação compara documento, nome sem sufixos (Ltda, S/A…) e nomes parecidos.</p>
         ) : (
           <ul className="divide-y divide-line">

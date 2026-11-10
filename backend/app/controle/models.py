@@ -1,4 +1,4 @@
-"""Banco de controle da FlicSales (`flicsales_controle`): quais organizações existem, onde mora o banco de cada uma,
+"""Banco de controle da FlicSales (`BANCO_CONTROLE`, padrão `flicsalesos_controle`): quais organizações existem, onde mora o banco de cada uma,
 por quais domínios elas entram e a quem pertence cada login. Nenhuma organização enxerga este banco.
 
 Portado do MayaFit (app/controle/models.py) SÓ com o mínimo para resolver organização/domínio/login. Planos, cobrança,

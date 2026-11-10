@@ -1,6 +1,8 @@
 """Seed da organização de demonstração com os dados do protótipo (docs/ESPECIFICACAO.md, seção 3).
 
-    cd backend && uv run python -m app.seed            # aplica as migrations e semeia o banco do DATABASE_URL
+    cd backend && uv run python -m app.seed            # aplica as migrations e semeia o banco do DATABASE_URL (só dev)
+    uv run python -m app.seed --organizacao acme       # popula UMA organização (modo um banco por organização);
+                                                       # qualquer ambiente; em prod só com --forcar
 
 Idempotente: `base` só cria o que falta (identidade, perfis, config de e-mail); `demo` só roda se o funil
 "Serviços B2B" ainda não existe (tudo numa transação: ou entra inteiro, ou nada). Usuários são criados se faltarem.
@@ -244,7 +246,48 @@ def semear(db: Session, hoje: date | None = None) -> bool:
     return criado
 
 
-def main() -> None:
+class SeedRecusado(RuntimeError):
+    """Pedido de seed fora das regras (organização inexistente, prod sem --forcar…)."""
+
+
+def popular_organizacao(slug: str, *, forcar: bool = False, hoje: date | None = None) -> bool:
+    """Popula UMA organização (um banco por organização) com os dados do protótipo e os usuários de demonstração
+    (francine/marina/lucas/fin, senha SENHA_DEMO). Qualquer ambiente; em prod só com `forcar`. Idempotente
+    (False se já estava populada). Não cria outros usuários nem mexe no Gestor da organização."""
+    from app.controle import service
+    from app.core import tenancy
+    from app.core.db import SessionLocal
+
+    if settings.ambiente == "prod" and not forcar:
+        raise SeedRecusado("Em produção o seed de demonstração exige --forcar (cria usuários com senha conhecida).")
+    if not tenancy.multi():
+        raise SeedRecusado(f"Sem o banco de controle {tenancy.banco_controle()}: rode `python -m app.seed` "
+                           "(um banco só) ou ative o modo multi com `python -m app.controle.cli ativar`.")
+    import app.controle.sincronia  # noqa: F401  (logins de demo entram no catálogo do controle)
+
+    org = service.por_slug(slug)
+    if org is None:
+        raise SeedRecusado(f"Organização {slug} não existe ou está inativa. Confira com `python -m app.controle.cli listar`.")
+    with tenancy.usando(org), SessionLocal() as db:
+        return semear(db, hoje)
+
+
+def main(argv: list[str] | None = None) -> None:
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="python -m app.seed", description="Dados de demonstração do protótipo.")
+    ap.add_argument("--organizacao", metavar="SLUG",
+                    help="popula esta organização (modo um banco por organização); qualquer ambiente exceto prod")
+    ap.add_argument("--forcar", action="store_true", help="permite --organizacao em produção")
+    a = ap.parse_args(argv)
+    if a.organizacao:
+        try:
+            criado = popular_organizacao(a.organizacao, forcar=a.forcar)
+        except SeedRecusado as e:
+            sys.exit(str(e))
+        print(f"Organização {a.organizacao}: dados de demonstração " + ("criados." if criado else "já existiam (nada duplicado)."))
+        print("Logins: francine (Gestor), marina e lucas (Comercial), fin (Financeiro). Senha de demonstração no CLAUDE.md.")
+        return
     _so_dev()
     from pathlib import Path
 

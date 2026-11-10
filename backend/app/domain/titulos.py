@@ -108,6 +108,18 @@ def validar_aprovacao(direcao: str, status: str, aprovacao: str | None) -> str:
     return "aprovado"
 
 
+# Campos que a alçada aprovou: mudar qualquer um deles depois da aprovação exige aprovar de novo.
+CAMPOS_DA_ALCADA = ("valor_original", "empresa_id", "vencimento")
+
+
+def exige_nova_aprovacao(*, direcao: str, aprovacao: str | None, antes: dict, mudancas: dict) -> bool:
+    """Conta a pagar já aprovada cuja edição muda valor, fornecedor ou vencimento volta para "pendente"
+    (senão a alçada seria burlada: aprova R$ 100 e paga R$ 90 mil)."""
+    if direcao != "pagar" or aprovacao != "aprovado":
+        return False
+    return any(c in mudancas and mudancas[c] != antes.get(c) for c in CAMPOS_DA_ALCADA)
+
+
 def validar_baixa(*, direcao: str, status: str, aprovacao: str | None, saldo: Decimal, valor, data: date,
                   data_base_conta: date | None, hoje: date) -> Decimal:
     """Valida um recebimento/pagamento gerencial. `data_base_conta=None` = conta não cadastrada/inativa.

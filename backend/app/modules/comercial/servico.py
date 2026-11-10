@@ -55,6 +55,15 @@ def obter_oportunidade(ctx: Contexto, id_: int) -> Oportunidade:
     return obter(ctx, Oportunidade, id_, NAO_ENCONTRADA)
 
 
+def comunicacao_visivel(ctx: Contexto, com: Comunicacao) -> bool:
+    """Regra ÚNICA de acesso a uma comunicação (tela Comercial e IA): com "só meus registros", a conversa herda o
+    responsável da oportunidade vinculada — sem oportunidade, ou de oportunidade de outro, não é visível."""
+    if not ctx.somente_meus_registros():
+        return True
+    op = ctx.db.get(Oportunidade, com.oportunidade_id) if com.oportunidade_id else None
+    return op is not None and op.responsavel_id == ctx.usuario.id
+
+
 def responsavel_efetivo(ctx: Contexto, responsavel_id: int | None) -> int:
     """Quem tem escopo "só meus registros" só cria registros para si (senão deixaria de enxergá-los)."""
     if ctx.somente_meus_registros():
