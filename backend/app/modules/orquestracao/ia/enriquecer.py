@@ -254,9 +254,15 @@ def _dados_atuais(ctx, objeto: str, registro_id: int | None, dados: dict[str, An
             if enr.PREFIXO_CUSTOM + str(slug) in campos:
                 atuais[enr.PREFIXO_CUSTOM + str(slug)] = v
     for k, v in dados.items():
-        if k in campos and not isinstance(v, (dict, list)):
+        if k in campos and (not isinstance(v, (dict, list)) or (isinstance(v, list) and campos[k].tipo == "multipla")):
             atuais[k] = v
-    return {k: (str(v) if v is not None and not isinstance(v, (str, int, float, bool)) else v) for k, v in atuais.items()}
+
+    def _simples(k: str, v: Any) -> Any:  # seleção múltipla segue como lista; o resto vira valor simples
+        if isinstance(v, list) and k in campos and campos[k].tipo == "multipla":
+            return [str(i) for i in v]
+        return str(v) if v is not None and not isinstance(v, (str, int, float, bool)) else v
+
+    return {k: _simples(k, v) for k, v in atuais.items()}
 
 
 def _fonte_ia(fonte: str, *, tem_texto: bool, fonte_cnpj: str | None) -> str:

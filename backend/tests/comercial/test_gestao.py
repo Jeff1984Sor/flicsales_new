@@ -228,3 +228,16 @@ def test_opcoes_para_formularios(client, marina):
     assert "Aurora Consultoria" in [e["nome"] for e in o["empresas"]]
     assert o["interesse"] == ["Baixo", "Médio", "Alto"] and "2 parcelas iguais" in o["condicoes_ganho"]
     assert o["funis"][0]["etapas"]
+
+
+def test_indicador_filtra_campo_de_selecao_multipla(client, gestor, demo):
+    from app.modules.comercial.models import Oportunidade
+
+    campo = CampoCustom(nome="Canais", slug="canais", tipo="multipla", objeto="oportunidade", opcoes=["Site", "Evento"])
+    demo.add(campo)
+    abertas = [o for o in demo.scalars(select(Oportunidade)) if o.resultado == "aberta"]
+    abertas[0].campos_custom = {**(abertas[0].campos_custom or {}), "canais": ["Site", "Evento"]}
+    demo.commit()
+    r = client.post(f"{API}/indicadores/previa", headers=gestor,
+                    json={"metrica": "soma_valor_unico", "filtro_campo_id": campo.id, "filtro_valor": "evento"})
+    assert r.status_code == 200 and r.json()["quantidade"] == 1

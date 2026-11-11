@@ -439,8 +439,9 @@ def _calcular(ctx: Ctx, metrica: str, filtro_campo_id: int | None, filtro_valor:
             raise RegraViolada("Campo personalizado não encontrado para oportunidades.")
         if not (filtro_valor or "").strip():
             raise RegraViolada("Informe o valor do filtro do campo personalizado.")
-        alvo = filtro_valor.strip().lower()
-        abertas = [o for o in abertas if str((o.campos_custom or {}).get(campo.slug, "")).strip().lower() == alvo]
+        from app.modules.nucleo.regras import valor_corresponde  # seleção múltipla: a opção está entre as marcadas
+
+        abertas = [o for o in abertas if valor_corresponde((o.campos_custom or {}).get(campo.slug), filtro_valor)]
         descricao += f" · {campo.nome} = {filtro_valor.strip()}"
     if metrica == "soma_valor_unico":
         valor, formula = sv.soma(o.valor_unico for o in abertas), "Σ valor único das oportunidades abertas filtradas"
