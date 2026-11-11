@@ -15,10 +15,15 @@ from typing import Any
 from app.domain import RegraViolada
 from app.domain.cadastro import chave_de_nome
 
-TIPOS_CAMPO = ("texto", "numero", "moeda", "data", "sim_nao", "lista")
+# "lista" = seleção única; "multipla" = seleção múltipla (valor = lista de opções); "link" = hiperlink http(s).
+# "sim_nao" continua aceito (campos antigos), mas a tela não o oferece mais.
+TIPOS_CAMPO = ("texto", "numero", "moeda", "data", "sim_nao", "lista", "multipla", "link")
+TIPOS_COM_OPCOES = ("lista", "multipla")
 OBJETOS_CAMPO = ("empresa", "pessoa", "oportunidade")
 ROTULO_TIPO = {"texto": "Texto", "numero": "Número", "moeda": "Moeda", "data": "Data", "sim_nao": "Sim/não",
-               "lista": "Lista"}
+               "lista": "Seleção única", "multipla": "Seleção múltipla", "link": "Hiperlink"}
+SEPARADOR_MULTIPLA = ";"  # planilha e texto: "Opção A; Opção B"
+_RX_LINK = re.compile(r"^https?://[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*(:\d+)?(/[^\s]*)?$", re.I)
 
 
 # ------------------------------------------------------------------------------------------------- campos custom
@@ -34,7 +39,8 @@ def validar_definicao_campo(*, nome: str | None, tipo: str, objeto: str, opcoes:
     if not (nome or "").strip():
         raise RegraViolada("Informe o nome do campo.")
     if tipo not in TIPOS_CAMPO:
-        raise RegraViolada("Tipo de campo inválido. Use texto, número, moeda, data, sim/não ou lista.")
+        raise RegraViolada("Tipo de campo inválido. Use texto, data, número, moeda, seleção única, seleção múltipla "
+                           "ou hiperlink.")
     if objeto not in OBJETOS_CAMPO:
         raise RegraViolada("Objeto inválido. Use empresa, pessoa ou oportunidade.")
     limpas: list[str] = []
@@ -43,8 +49,12 @@ def validar_definicao_campo(*, nome: str | None, tipo: str, objeto: str, opcoes:
         if o and o not in limpas:
             limpas.append(o)
     if tipo == "lista" and len(limpas) < 1:
-        raise RegraViolada("Campo do tipo lista precisa de ao menos uma opção.")
-    return limpas if tipo == "lista" else []
+        raise RegraViolada("Campo de seleção única precisa de ao menos uma opção.")
+    if tipo == "multipla" and len(limpas) < 1:
+        raise RegraViolada("Campo de seleção múltipla precisa de ao menos uma opção.")
+    if tipo == "multipla" and any(SEPARADOR_MULTIPLA in o for o in limpas):
+        raise RegraViolada("Opção de seleção múltipla não pode ter “;” (é o separador na planilha).")
+    return limpas if tipo in TIPOS_COM_OPCOES else []
 
 
 @dataclass(frozen=True)
@@ -60,11 +70,39 @@ class DefCampo:
 
 
 def _vazio(v: Any) -> bool:
-    return v is None or (isinstance(v, str) and not v.strip())
+    return v is None or (isinstance(v, str) and not v.strip()) or (isinstance(v, list | tuple) and not v)
+
+
+def normalizar_link(valor: Any, *, nome: str = "Link") -> str:
+    """URL http(s). Sem protocolo, assume https:// ("www.aurora.com.br" → "https://www.aurora.com.br")."""
+    if not isinstance(valor, str):
+        raise RegraViolada(f"{nome}: informe um endereço começando com http:// ou https://.")
+    s = valor.strip()
+    if not re.match(r"^[a-z][a-z0-9+.-]*://", s, re.I) and not re.match(r"^[a-z]+:", s, re.I):
+        s = "https://" + s
+    if len(s) > 500 or not _RX_LINK.match(s):
+        raise RegraViolada(f"{nome}: informe um endereço começando com http:// ou https://.")
+    return s
+
+
+def normalizar_multipla(campo: "DefCampo", valor: Any) -> list[str]:
+    """Lista de opções válidas (também aceita texto "A; B"), sem repetição, na ordem das opções do campo."""
+    if isinstance(valor, str):
+        itens = [x.strip() for x in valor.split(SEPARADOR_MULTIPLA)]
+    elif isinstance(valor, list | tuple):
+        itens = [x.strip() if isinstance(x, str) else x for x in valor]
+    else:
+        raise RegraViolada(f"{campo.nome}: escolha uma ou mais opções ({', '.join(campo.opcoes)}).")
+    itens = [x for x in itens if not _vazio(x)]
+    invalidas = [str(x) for x in itens if x not in campo.opcoes]
+    if invalidas:
+        raise RegraViolada(f"{campo.nome}: “{invalidas[0]}” não é uma das opções ({', '.join(campo.opcoes)}).")
+    return [o for o in campo.opcoes if o in itens]
 
 
 def normalizar_valor(campo: DefCampo, valor: Any) -> Any:
-    """Converte e valida um valor para o tipo do campo. Vazio → None. Moeda vira string decimal ("1234.50")."""
+    """Converte e valida um valor para o tipo do campo. Vazio → None. Moeda vira string decimal ("1234.50");
+    seleção múltipla vira lista de opções; link vira URL http(s)."""
     if _vazio(valor):
         return None
     nome = campo.nome
@@ -103,6 +141,10 @@ def normalizar_valor(campo: DefCampo, valor: Any) -> Any:
         if texto not in campo.opcoes:
             raise RegraViolada(f"{nome}: escolha uma das opções ({', '.join(campo.opcoes)}).")
         return texto
+    if campo.tipo == "multipla":
+        return normalizar_multipla(campo, valor) or None
+    if campo.tipo == "link":
+        return normalizar_link(valor, nome=nome)
     raise RegraViolada(f"{nome}: tipo de campo desconhecido.")  # pragma: no cover
 
 
@@ -192,3 +234,12 @@ def encontrar_duplicidades(empresas: list[EmpresaComparavel], *, limiar: float =
             if r >= limiar:
                 pares[par] = ParDuplicado(a.id, b.id, "Nomes muito parecidos", round(r, 2))
     return sorted(pares.values(), key=lambda p: (-p.semelhanca, p.a, p.b))
+
+
+def valor_corresponde(valor: Any, alvo: str | None) -> bool:
+    """Filtro "campo = valor" sobre um valor gravado em `campos_custom` (sem diferenciar maiúsculas). Seleção múltipla
+    (lista) corresponde quando a opção está entre as marcadas. Use nos filtros por campo personalizado."""
+    a = (alvo or "").strip().lower()
+    if isinstance(valor, list | tuple):
+        return any(str(v).strip().lower() == a for v in valor)
+    return str(valor if valor is not None else "").strip().lower() == a

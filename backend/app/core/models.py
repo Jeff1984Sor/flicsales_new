@@ -42,6 +42,9 @@ class Usuario(Base, Timestamped):
     telefone: Mapped[str | None] = mapped_column(String(20))
     foto_path: Mapped[str | None] = mapped_column(String(500))  # RELATIVO ao storage (nunca absoluto)
     preferencias: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    # assinatura dos e-mails enviados POR este usuário (migração 0005); sem ela vale a da Identidade
+    assinatura_email: Mapped[str | None] = mapped_column(Text)
+    assinatura_imagem: Mapped[str | None] = mapped_column(String(300))  # RELATIVO ao storage ("assinaturas/...")
     senha_hash: Mapped[str | None] = mapped_column(String(255))  # nulo = sem login
     perfil_acesso_id: Mapped[int | None] = mapped_column(ForeignKey("perfil_acesso.id"))
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -31,8 +31,10 @@ from app.core.models import Usuario
 from app.domain import RegraViolada
 from app.domain import planilha as cel
 from app.domain.cadastro import (
+    BASES_LEGAIS,
     CAMPOS_ENDERECO,
     PAPEIS_EMPRESA,
+    PERMISSOES_COMUNICACAO,
     UFS,
     chave_de_nome,
     endereco_de,
@@ -41,12 +43,13 @@ from app.domain.cadastro import (
     validar_cep,
     validar_documento,
     validar_nome,
+    validar_permissoes_comunicacao,
     validar_uf,
 )
 from app.domain.caixa import validar_edicao_conta
 from app.modules.nucleo import servico
 from app.modules.nucleo.models import CampoCustom, Categoria, CentroCusto, ContaFinanceira, Empresa, Pessoa, Produto
-from app.modules.nucleo.regras import DefCampo, normalizar_valor
+from app.modules.nucleo.regras import SEPARADOR_MULTIPLA, DefCampo, normalizar_valor
 
 LIMITE_BYTES = 5 * 1024 * 1024
 LIMITE_LINHAS = 5000
@@ -60,7 +63,8 @@ TIPO_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 class Coluna:
     cabecalho: str
     campo: str
-    tipo: str = "texto"  # texto | email | documento | cep | uf | decimal | data | sim_nao | opcao | papeis | custom
+    # texto | email | documento | cep | uf | decimal | data | sim_nao | opcao | papeis | multipla | custom
+    tipo: str = "texto"
     obrigatoria: bool = False  # obrigatória para CRIAR (na atualização, vazio não muda nada)
     max_len: int | None = None
     opcoes: tuple[tuple[str, str], ...] = ()  # (rótulo exibido, valor gravado)
@@ -80,6 +84,8 @@ PAPEIS = tuple((p, p) for p in PAPEIS_EMPRESA)
 CANAIS = (("E-mail", "email"), ("Ligação", "ligacao"), ("WhatsApp", "whatsapp"))
 TIPOS_PRODUTO = (("Serviço", "servico"), ("Produto", "produto"))
 NATUREZAS = (("Receita", "receita"), ("Despesa", "despesa"))
+BASES = tuple((r, v) for v, r in BASES_LEGAIS.items())
+PERMISSOES = tuple((r, v) for v, r in PERMISSOES_COMUNICACAO.items())
 
 ENDERECO = (
     Coluna("CEP", "cep", "cep", formato="00000-000", exemplo="01310-100"),
@@ -144,6 +150,12 @@ def _colunas_fixas(objeto: str) -> tuple[Coluna, ...]:
                    formato="Sim ou Não", exemplo="Sim",
                    ajuda="Sim (padrão): copia e acompanha o endereço da empresa. Endereço preenchido sem esta coluna "
                          "desliga a marca."),
+            Coluna("Base legal", "base_legal", "opcao", opcoes=BASES, formato="Uma das opções", exemplo="Consentimento",
+                   ajuda="Base legal do tratamento dos dados (LGPD)."),
+            Coluna("Permissão de comunicação", "permissoes_comunicacao", "multipla", opcoes=PERMISSOES,
+                   formato="Uma ou mais, separadas por ;", exemplo=PERMISSOES[0][0],
+                   ajuda="Separe por ponto e vírgula. Célula preenchida substitui as permissões atuais. "
+                         "Opt-out não combina com as outras."),
             *ENDERECO,
         )
     if objeto == "produtos":
@@ -198,7 +210,8 @@ OBJETOS: dict[str, dict] = {
 }
 
 _FORMATO_CUSTOM = {"texto": "Texto", "numero": "Número", "moeda": "1.234,56", "data": "DD/MM/AAAA",
-                   "sim_nao": "Sim ou Não", "lista": "Uma das opções"}
+                   "sim_nao": "Sim ou Não", "lista": "Uma das opções", "multipla": "Uma ou mais, separadas por ;",
+                   "link": "https://endereco.com.br"}
 
 
 def colunas(db: Session, objeto: str) -> list[Coluna]:
@@ -212,11 +225,11 @@ def colunas(db: Session, objeto: str) -> list[Coluna]:
             cab = c.nome if cel.chave_cabecalho(c.nome) not in usados else f"{c.nome} (personalizado)"
             d = DefCampo(slug=c.slug, nome=c.nome, tipo=c.tipo, opcoes=tuple(c.opcoes or ()),
                          obrigatorio=c.obrigatorio)
-            opcoes = tuple((o, o) for o in c.opcoes or ()) if c.tipo == "lista" else (
+            opcoes = tuple((o, o) for o in c.opcoes or ()) if c.tipo in ("lista", "multipla") else (
                 SIM_NAO if c.tipo == "sim_nao" else ())
             fixas.append(Coluna(cab, f"campos_custom.{c.slug}", "custom", obrigatoria=c.obrigatorio, opcoes=opcoes,
                                 formato=_FORMATO_CUSTOM.get(c.tipo, "Texto"),
-                                exemplo=(c.opcoes or [""])[0] if c.tipo == "lista" else "",
+                                exemplo=(c.opcoes or [""])[0] if c.tipo in ("lista", "multipla") else "",
                                 ajuda="Campo personalizado.", campo_custom=d))
     return fixas
 
@@ -254,7 +267,8 @@ def gerar_modelo(db: Session, objeto: str) -> bytes:
             formula = '"' + ",".join(itens) + '"'
             if len(formula) <= 255 and not any("," in x or '"' in x for x in itens):
                 dv = DataValidation(type="list", formula1=formula, allow_blank=True)
-                if c.tipo == "papeis":  # aceita vários separados por vírgula: só avisa
+                if c.tipo in ("papeis", "multipla") or (c.campo_custom and c.campo_custom.tipo == "multipla"):
+                    # aceita vários na mesma célula: a lista só sugere, não recusa
                     dv.showErrorMessage = False
                 else:
                     dv.error, dv.errorTitle = "Escolha uma das opções da lista.", "Valor inválido"
@@ -415,6 +429,8 @@ def _converter(c: Coluna, valor: Any) -> Any:
         return cel.opcao(valor, c.mapa_opcoes)
     if t == "papeis":
         return cel.lista(valor, c.mapa_opcoes)
+    if t == "multipla":
+        return cel.lista(valor, c.mapa_opcoes, separadores=SEPARADOR_MULTIPLA)
     if t == "custom":
         d = c.campo_custom
         if d.tipo in ("numero", "moeda"):
@@ -423,6 +439,8 @@ def _converter(c: Coluna, valor: Any) -> Any:
             valor = cel.data(valor).isoformat()
         elif d.tipo == "sim_nao":
             valor = cel.sim_nao(valor)
+        elif d.tipo == "multipla":  # sem acento/maiúsculas, separadas por ";"
+            valor = cel.lista(valor, {o: o for o in d.opcoes}, separadores=SEPARADOR_MULTIPLA)
         elif isinstance(valor, float | int | datetime | date):
             valor = cel.texto(valor)
         return normalizar_valor(d, valor)
@@ -632,6 +650,9 @@ class _Importador:
         emp_nome = dados.pop("empresa", None)
         marca = dados.pop("usa_endereco_da_empresa", None)
         endereco = {k: dados.pop(k) for k in CAMPOS_ENDERECO if k in dados}
+        if "permissoes_comunicacao" in dados:
+            with _na_coluna("Permissão de comunicação"):
+                dados["permissoes_comunicacao"] = validar_permissoes_comunicacao(dados["permissoes_comunicacao"])
         empresa = None
         if emp_nome:
             empresa = servico.empresa_com_nome(db, emp_nome)

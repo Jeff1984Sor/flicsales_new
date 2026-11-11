@@ -33,14 +33,15 @@ def test_validacoes(gestor):
     # mesmo nome em outro objeto é permitido
     assert gestor.post("/nucleo/campos", {"nome": "Interesse", "tipo": "texto", "objeto": "pessoa"}).status_code == 201
     assert gestor.post("/nucleo/campos", {"nome": "L", "tipo": "lista", "objeto": "empresa"}).json()["detail"] == \
-        "Campo do tipo lista precisa de ao menos uma opção."
+        "Campo de seleção única precisa de ao menos uma opção."
     assert gestor.post("/nucleo/campos", {"nome": "L", "tipo": "cor", "objeto": "empresa"}).status_code == 422
     assert gestor.post("/nucleo/campos", {"nome": "L", "tipo": "texto", "objeto": "titulo"}).status_code == 422
     assert gestor.post("/nucleo/campos", {"nome": "L", "tipo": "texto", "objeto": "empresa",
                                           "exigido_na_etapa_id": 1}).json()["detail"] == \
         "Só campos de oportunidade podem ser exigidos por etapa."
     assert gestor.post("/nucleo/campos", {"nome": "L", "tipo": "texto", "objeto": "oportunidade",
-                                          "exigido_na_etapa_id": 99}).json()["detail"] == "Etapa não encontrada."
+                                          "exigido_na_etapa_id": 99}).json()["detail"] == (
+        "Etapa não encontrada. Escolha o funil e depois uma etapa dele.")
     # tipo e objeto não mudam
     assert gestor.patch("/nucleo/campos/1", {"tipo": "texto"}).status_code == 422
 
@@ -123,7 +124,8 @@ def test_etapas_para_campos(gestor, db):
     db.flush()
     db.add(Etapa(funil_id=funil.id, nome="Entrada", ordem=1, probabilidade=10))
     db.commit()
-    assert gestor.get("/nucleo/campos/etapas").json() == [{"id": 1, "nome": "Entrada", "funil_nome": "Serviços B2B"}]
+    assert gestor.get("/nucleo/campos/etapas").json() == [{"id": 1, "nome": "Entrada", "funil_id": funil.id,
+                                                          "funil_nome": "Serviços B2B"}]
 
 
 def test_404_e_403(gestor, leitura, comercial, financeiro):

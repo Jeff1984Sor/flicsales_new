@@ -73,3 +73,7 @@ Gestão comercial.
   `PATCH /api/comercial/propostas/{id} {"status": "aprovada_internamente"}` (o Gestor tem a permissão).
 - Busca global (paleta) ainda não procura oportunidades.
 - Não houve teste no navegador com backend rodando (só testes da API, lint e build).
+- **Pedido do Núcleo (ajustes 11/2026)**: campo personalizado novo `multipla` grava **lista** de opções em
+  `campos_custom[slug]`. O filtro de indicador em `rotas_gestao._calcular` compara `str(valor) == alvo` e não acha a
+  opção dentro da lista — trocar por `app.modules.nucleo.regras.valor_corresponde(valor, filtro_valor)` (pura, testada).
+  `conferir_campos_exigidos` já funciona (lista vazia nunca é gravada: vira ausência da chave).

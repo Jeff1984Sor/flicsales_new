@@ -24,7 +24,7 @@ OBJETOS = ("empresa", "fornecedor", "pessoa", "produto", "categoria", "centro_cu
 @dataclass(frozen=True)
 class Campo:
     """Campo editável que a IA pode sugerir. `tipo`: texto | texto_longo | email | telefone | cep | uf | documento |
-    site | opcao | dinheiro | numero | moeda | data | sim_nao."""
+    site | opcao | multipla | dinheiro | numero | moeda | data | sim_nao. `multipla` = lista de `opcoes`."""
 
     nome: str
     rotulo: str
@@ -96,13 +96,14 @@ CAMPOS_FIXOS: dict[str, tuple[Campo, ...]] = {
 # objeto do enriquecimento → objeto dos campos personalizados (CampoCustom.objeto)
 OBJETO_CUSTOM = {"empresa": "empresa", "fornecedor": "empresa", "pessoa": "pessoa"}
 PREFIXO_CUSTOM = "campos_custom."
+# tipo do campo personalizado → tipo do enriquecimento (seleção múltipla = lista de opções; hiperlink = site/url)
 _TIPO_CUSTOM = {"texto": "texto", "numero": "numero", "moeda": "moeda", "data": "data", "sim_nao": "sim_nao",
-                "lista": "opcao"}
+                "lista": "opcao", "multipla": "multipla", "link": "site"}
 
 
 def campo_custom(slug: str, nome: str, tipo: str, opcoes: list[str] | None = None) -> Campo:
     return Campo(PREFIXO_CUSTOM + slug, nome, _TIPO_CUSTOM.get(tipo, "texto"), max_len=500,
-                 opcoes=tuple(opcoes or ()) if tipo == "lista" else ())
+                 opcoes=tuple(opcoes or ()) if tipo in ("lista", "multipla") else ())
 
 
 def lista_branca(objeto: str, customs: list[Campo] | None = None) -> dict[str, Campo]:
@@ -177,9 +178,39 @@ def _texto(v: Any, max_len: int, *, multilinha: bool = False) -> str | None:
     return s
 
 
+def _itens_multipla(v: Any, opcoes: tuple[str, ...]) -> list[Any] | None:
+    """Lista enviada, ou texto "A; B" / "A, B" / "['A', 'B']" quebrado nos itens. Vírgula só separa quando não há
+    ";" e o texto inteiro não é uma das opções (opção pode ter vírgula). None se não der para ler."""
+    if isinstance(v, (list, tuple)):
+        return list(v)
+    if not isinstance(v, str):
+        return None
+    s = v.strip().strip("[]")
+    if _sem_acento(s) in {_sem_acento(o) for o in opcoes}:
+        return [s]
+    sep = r"[;|\n]" if re.search(r"[;|\n]", s) else r","
+    return [x.strip().strip("'\"") for x in re.split(sep, s)]
+
+
 def normalizar(c: Campo, v: Any) -> Any:
     """Valor normalizado, ou None se inválido (a sugestão é descartada)."""
     t = c.tipo
+    if t == "multipla":  # todas as opções precisam existir no campo; sai na ordem das opções, sem repetição
+        itens = _itens_multipla(v, c.opcoes)
+        if itens is None:
+            return None
+        escolhidas = set()
+        for item in itens:
+            if item is None or (isinstance(item, str) and not item.strip()):
+                continue
+            if not isinstance(item, str):
+                return None
+            alvo = _sem_acento(item)
+            o = next((o for o in c.opcoes if _sem_acento(o) == alvo), None)
+            if o is None:
+                return None
+            escolhidas.add(o)
+        return [o for o in c.opcoes if o in escolhidas] or None
     if t == "sim_nao":
         if isinstance(v, bool):
             return v
@@ -252,8 +283,10 @@ def normalizar(c: Campo, v: Any) -> Any:
 def igual(c: Campo, atual: Any, sugerido: Any) -> bool:
     """O sugerido já é o valor atual? Compara o valor como está no formulário (sem caixa/acentos/espaços nas pontas):
     "11222333000181" → "11.222.333/0001-81" CONTA como sugestão (padronizar formato é útil)."""
-    if atual is None or atual == "":
+    if atual is None or atual == "" or atual == []:
         return False
+    if c.tipo == "multipla":
+        return normalizar(c, atual) == sugerido
     if isinstance(sugerido, bool) or isinstance(atual, bool):
         return normalizar(c, atual) == sugerido
     if c.tipo in ("dinheiro", "moeda", "numero"):

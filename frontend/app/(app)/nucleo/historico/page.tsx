@@ -103,7 +103,7 @@ export default function HistoricoAcoesPage() {
   return (
     <div>
       <PageHeader
-        titulo="Histórico de ações"
+        titulo="Auditoria"
         descricao="Registro das mudanças: quem fez o quê, quando — com o antes e o depois."
       />
       <TableCard>

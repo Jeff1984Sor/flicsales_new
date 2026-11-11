@@ -2,7 +2,8 @@
 
 /**
  * CamposPersonalizados — renderiza no formulário os campos personalizados ATIVOS de um objeto (catálogo do Núcleo,
- * GET /nucleo/campos?objeto=…) com o controle certo para cada tipo (texto, número, moeda, data, sim/não, lista).
+ * GET /nucleo/campos?objeto=…) com o controle certo para cada tipo (texto, número, moeda, data, sim/não, seleção única,
+ * seleção múltipla em caixas de marcar e hiperlink com link clicável).
  * O valor fica em `<registro>.campos_custom[slug]`; mande o objeto inteiro no corpo (`campos_custom: valores`) — a
  * API valida tipo, opções e obrigatórios e devolve 400 com a mensagem pronta.
  *
@@ -15,13 +16,17 @@
  *  - `etapaId?: number | null`                        (oportunidade) marca como obrigatório o campo exigido nesta etapa
  * Sem campos ativos para o objeto, não renderiza nada.
  *
- * Também exporta: `useCamposDoObjeto(objeto)` (lista do catálogo) e `formatarValorCampo(campo, valor)`.
+ * Também exporta: `useCamposDoObjeto(objeto)` (lista do catálogo), `formatarValorCampo(campo, valor)` (texto) e
+ * `<ValorCampoExibido campo valor />` (texto; hiperlink vira link clicável).
  *
  * Ex.: <CamposPersonalizados objeto="empresa" valores={form.campos_custom} onChange={(v) => set("campos_custom", v)} />
  */
 import { useQuery } from "@tanstack/react-query";
 
+import { ExternalLink } from "lucide-react";
+
 import { Field, NativeSelect } from "@/components/flic/form";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -41,15 +46,74 @@ export function useCamposDoObjeto(objeto: ObjetoCampo) {
 
 export function formatarValorCampo(campo: Pick<CampoCustom, "tipo">, valor: ValorCampo | undefined): string {
   if (valor == null || valor === "") return "—";
+  if (Array.isArray(valor)) return valor.length ? valor.join(", ") : "—";
   if (campo.tipo === "sim_nao") return valor === true || valor === "true" ? "Sim" : "Não";
   if (campo.tipo === "moeda") return moeda(String(valor));
   if (campo.tipo === "data") return fmtData(String(valor));
   return String(valor);
 }
 
+/** URL http(s) válida para virar link (o resto é mostrado como texto). */
+function urlSegura(v: string): string | null {
+  try {
+    const u = new URL(v);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
+export function ValorCampoExibido({ campo, valor }: { campo: Pick<CampoCustom, "tipo">; valor: ValorCampo | undefined }) {
+  if (campo.tipo === "link" && typeof valor === "string") {
+    const url = urlSegura(valor);
+    if (url)
+      return (
+        <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 break-all text-primary hover:underline">
+          {valor}
+          <ExternalLink className="size-3 shrink-0" />
+        </a>
+      );
+  }
+  return <>{formatarValorCampo(campo, valor)}</>;
+}
+
 function Controle({ campo, valor, onChange }: { campo: CampoCustom; valor: ValorCampo | undefined; onChange: (v: ValorCampo) => void }) {
-  const texto = valor == null ? "" : String(valor);
+  const texto = valor == null ? "" : Array.isArray(valor) ? valor.join("; ") : String(valor);
   switch (campo.tipo) {
+    case "multipla": {
+      const marcadas = Array.isArray(valor) ? valor : typeof valor === "string" && valor ? [valor] : [];
+      // opção gravada que saiu do catálogo continua visível para poder desmarcar
+      const opcoes = [...campo.opcoes, ...marcadas.filter((m) => !campo.opcoes.includes(m))];
+      return (
+        <div className="flex flex-col gap-2" role="group" aria-label={campo.nome}>
+          {opcoes.map((o) => (
+            <label key={o} className="flex items-center gap-2.5 text-sm">
+              <Checkbox
+                checked={marcadas.includes(o)}
+                onCheckedChange={(on) => {
+                  const nova = on === true ? [...marcadas.filter((x) => x !== o), o] : marcadas.filter((x) => x !== o);
+                  onChange(nova.length ? nova : null);
+                }}
+              />
+              {o}
+            </label>
+          ))}
+        </div>
+      );
+    }
+    case "link": {
+      const url = urlSegura(texto);
+      return (
+        <div className="flex items-center gap-2">
+          <Input type="url" inputMode="url" placeholder="https://" className="h-9 flex-1" value={texto} onChange={(e) => onChange(e.target.value.trim() || null)} />
+          {url && (
+            <a href={url} target="_blank" rel="noopener noreferrer" aria-label="Abrir link" className="grid size-9 place-items-center rounded-[7px] border border-line text-primary hover:border-primary">
+              <ExternalLink className="size-4" />
+            </a>
+          )}
+        </div>
+      );
+    }
     case "lista":
       return (
         <NativeSelect value={texto} onChange={(e) => onChange(e.target.value || null)}>
@@ -107,7 +171,9 @@ export function CamposPersonalizados({
           {campos.map((c) => (
             <div key={c.id}>
               <dt className="text-xs text-muted">{c.nome}</dt>
-              <dd>{formatarValorCampo(c, valores[c.slug])}</dd>
+              <dd>
+                <ValorCampoExibido campo={c} valor={valores[c.slug]} />
+              </dd>
             </div>
           ))}
         </dl>

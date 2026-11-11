@@ -71,10 +71,16 @@ def organizacao_do_login(identificador: str) -> bool:
     return True
 
 
+def assinatura_imagem_url(u: Usuario) -> str | None:
+    if not storage.existe(u.assinatura_imagem):
+        return None
+    return f"/auth/me/assinatura-imagem?v={storage.versao(u.assinatura_imagem)}"
+
+
 def me_out(u: Usuario) -> UsuarioMe:
     return UsuarioMe.model_validate(u).model_copy(update={
         "organizacao": organizacao_info(),
-        "foto_url": foto_url(u), "administrador": u.administrador, "permissoes": sorted(u.permissoes),
+        "foto_url": foto_url(u), "assinatura_imagem_url": assinatura_imagem_url(u), "administrador": u.administrador, "permissoes": sorted(u.permissoes),
         "perfil_acesso_nome": u.perfil_acesso.nome if u.perfil_acesso else None,
         "somente_meus_registros": bool(u.perfil_acesso and not u.administrador and u.perfil_acesso.somente_meus_registros)})
 
@@ -226,9 +232,14 @@ def me(ctx: Ctx):
 
 @router.patch("/me", response_model=UsuarioMe)
 def alterar_me(dados: MePatch, ctx: Ctx):
-    for k, v in dados.model_dump(exclude_unset=True).items():
+    valores = dados.model_dump(exclude_unset=True)
+    if "assinatura_email" in valores:  # vazio = sem assinatura própria (vale a da Identidade)
+        valores["assinatura_email"] = (valores["assinatura_email"] or "").strip() or None
+    antes = audit.snapshot(ctx.usuario)
+    for k, v in valores.items():
         setattr(ctx.usuario, k, v)
-    ctx.auditar("usuario.alterar_proprio", "usuario", ctx.usuario.id)
+    a, d = audit.diff(antes, audit.snapshot(ctx.usuario))
+    ctx.auditar("usuario.alterar_proprio", "usuario", ctx.usuario.id, antes=a, depois=d)
     ctx.db.commit()
     return me_out(ctx.usuario)
 
@@ -271,6 +282,44 @@ def remover_foto(ctx: Ctx):
     ctx.usuario.foto_path = None
     ctx.db.commit()
     return me_out(ctx.usuario)
+
+
+@router.post("/me/assinatura-imagem", response_model=UsuarioMe)
+async def enviar_assinatura_imagem(ctx: Ctx, arquivo: UploadFile = File(...)):
+    """Imagem da assinatura de e-mail (PNG ou JPG até 1 MB). Substitui a anterior."""
+    u = ctx.usuario
+    conteudo = await arquivo.read(1024 * 1024 + 1)
+    try:
+        u.assinatura_imagem = storage.salvar("assinaturas", arquivo.filename or "", conteudo,
+                                             nome_base=f"usuario_{u.id}", substituir=True)
+    except storage.ArquivoInvalido as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    ctx.auditar("usuario.assinatura_imagem", "usuario", u.id, descricao="Nova imagem da assinatura de e-mail",
+                depois={"assinatura_imagem": u.assinatura_imagem})
+    ctx.db.commit()
+    return me_out(u)
+
+
+@router.delete("/me/assinatura-imagem", response_model=UsuarioMe)
+def remover_assinatura_imagem(ctx: Ctx):
+    u = ctx.usuario
+    if not u.assinatura_imagem:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Você não tem imagem de assinatura.")
+    antes = u.assinatura_imagem
+    storage.remover(u.assinatura_imagem)
+    u.assinatura_imagem = None
+    ctx.auditar("usuario.assinatura_imagem", "usuario", u.id, descricao="Imagem da assinatura de e-mail removida",
+                antes={"assinatura_imagem": antes}, depois={"assinatura_imagem": None})
+    ctx.db.commit()
+    return me_out(u)
+
+
+@router.get("/me/assinatura-imagem")
+def assinatura_imagem(ctx: Ctx):
+    if not storage.existe(ctx.usuario.assinatura_imagem):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Sem imagem de assinatura. Envie uma em Minha conta.")
+    return FileResponse(storage.resolver(ctx.usuario.assinatura_imagem),
+                        headers={"Cache-Control": "private, max-age=86400"})
 
 
 def _usuario(ctx, uid: int) -> Usuario:

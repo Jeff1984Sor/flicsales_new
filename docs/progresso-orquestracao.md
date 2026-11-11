@@ -108,3 +108,9 @@ automações de envio do canal. Ativar automação de envio exige a integração
   já registra os envios como `pendente_conector`.
 - Leitura do momento com IA ligada chama o provedor a cada abertura da tela (sem cache).
 - Sem teste no navegador com o backend real (só lint/build/tsc e testes de API).
+- **Pedido do Núcleo (ajustes 11/2026)**: `ia/enriquecer._dados_atuais` transforma valores não escalares em `str`
+  (lista de campo `multipla` vira "['A', 'B']"). O domínio (`app.domain.enriquecimento.normalizar/igual`, tipo
+  `multipla`) já tolera esse texto, mas o ideal é manter a lista como veio (não converter `list`).
+- **Opt-out (LGPD)**: pessoa com `permissoes_comunicacao` contendo `opt_out` não deve receber envio automático. Quando
+  as ações `enviar_email`/`enviar_whatsapp` passarem a enviar de fato, conferir `app.domain.cadastro.aceita_envio_automatico`
+  e registrar o bloqueio na execução. Envio por usuário deve usar `app.core.email.enviar(..., remetente=usuario)` (assinatura).

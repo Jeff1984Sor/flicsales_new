@@ -176,7 +176,7 @@ def enviar_link_email(db: Session, u: Usuario, *, convite: bool = False) -> bool
         assunto = "Redefinição de senha"
         texto = f"Olá, {u.nome}.\n\nPara criar uma nova senha, acesse:\n{link}"
     texto += f"\n\nO link vale por {horas} horas e só pode ser usado uma vez. Se não foi você, ignore este e-mail."
-    return mail.enviar([u.email], assunto, texto, db=db)
+    return mail.enviar([u.email], assunto, texto, db=db, assinar=True)  # e-mail do sistema: assinatura da Identidade
 
 
 def telefone_whatsapp(telefone: str | None) -> str | None:

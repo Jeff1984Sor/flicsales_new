@@ -56,7 +56,7 @@ export function dadosParaIA(form: object): DadosEnriquecer {
   const out: DadosEnriquecer = {};
   for (const [k, v] of Object.entries(form)) {
     if (k === "campos_custom" && v && typeof v === "object") {
-      for (const [slug, cv] of Object.entries(v as ValoresCampos)) out[`campos_custom.${slug}`] = cv;
+      for (const [slug, cv] of Object.entries(v as ValoresCampos)) out[`campos_custom.${slug}`] = Array.isArray(cv) ? cv.join("; ") : cv;
     } else if (v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
       out[k] = typeof v === "string" && v.trim() === "" ? null : v;
     }
@@ -70,7 +70,11 @@ export function mesclarSugestoes<F extends object>(form: F, valores: Record<stri
   for (const [k, v] of Object.entries(valores)) {
     if (k.startsWith("campos_custom.")) {
       if (!("campos_custom" in out)) continue;
-      out.campos_custom = { ...(out.campos_custom as ValoresCampos), [k.slice("campos_custom.".length)]: v };
+      const cc = out.campos_custom as ValoresCampos;
+      const slug = k.slice("campos_custom.".length);
+      // seleção múltipla: a sugestão chega como texto "a; b"
+      const novo = Array.isArray(cc[slug]) && typeof v === "string" ? v.split(";").map((x) => x.trim()).filter(Boolean) : v;
+      out.campos_custom = { ...cc, [slug]: novo };
       continue;
     }
     if (!(k in out)) continue;

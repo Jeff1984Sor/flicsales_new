@@ -22,7 +22,7 @@ import { Dinheiro } from "@/components/flic/dinheiro";
 import { Drawer } from "@/components/flic/drawer";
 import { Etiqueta } from "@/components/flic/etiqueta";
 import { abrirAssistente } from "@/components/flic/eventos";
-import { Field } from "@/components/flic/form";
+import { Field, NativeSelect } from "@/components/flic/form";
 import { notificar } from "@/components/flic/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,7 +30,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { cnpjValido } from "@/lib/validacao";
 import { useAuth } from "@/lib/auth";
-import { PAPEIS, type ConsultaCnpj, type EmpresaDetalhe, type EmpresaEntrada, type Papel, type ValoresCampos } from "@/lib/tipos-nucleo";
+import { ORIGENS_EMPRESA, PAPEIS, type ConsultaCnpj, type EmpresaDetalhe, type EmpresaEntrada, type Papel, type ValoresCampos } from "@/lib/tipos-nucleo";
 import { cn } from "@/lib/utils";
 
 import { CampoCnpj, erroDeDocumento, erroDocumentoLocal, preencherVazios } from "./campo-cnpj";
@@ -154,7 +154,7 @@ function Formulario({
   const [f, setF] = useState(inicial);
   const [erroDocLocal, setErroDocLocal] = useState<string | null>(null);
   const set = <K extends keyof FormEmpresa>(k: K, v: FormEmpresa[K]) => setF((x) => ({ ...x, [k]: v }));
-  const campo = (k: "nome" | "nome_fantasia" | "segmento" | "porte" | "site" | "email_financeiro" | "telefone" | "origem") => ({
+  const campo = (k: "nome" | "nome_fantasia" | "segmento" | "porte" | "site" | "email_financeiro" | "telefone") => ({
     value: f[k],
     disabled: desabilitado,
     className: "h-9",
@@ -239,8 +239,16 @@ function Formulario({
       <Field label="Papéis">
         <ChipsPapeis valor={f.papeis} onChange={(v) => set("papeis", v)} disabled={desabilitado} />
       </Field>
-      <Field label="Origem">
-        <Input {...campo("origem")} />
+      <Field label="Origem" dica="Canal de entrada do relacionamento">
+        <NativeSelect value={f.origem} disabled={desabilitado} onChange={(e) => set("origem", e.target.value)}>
+          <option value="">Selecionar</option>
+          {f.origem && !(ORIGENS_EMPRESA as readonly string[]).includes(f.origem) && <option value={f.origem}>{f.origem}</option>}
+          {ORIGENS_EMPRESA.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </NativeSelect>
       </Field>
       <Field label="Observações">
         <Textarea value={f.observacoes} disabled={desabilitado} onChange={(e) => set("observacoes", e.target.value)} />

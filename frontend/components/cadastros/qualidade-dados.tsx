@@ -136,7 +136,7 @@ export function QualidadeDados() {
             </div>
             <p className="text-xs leading-relaxed text-muted">
               Todos os vínculos da outra (contatos, oportunidades, atividades, comunicações, propostas, títulos e recorrências) passam para a escolhida. Campos vazios da escolhida são
-              completados, os papéis se somam e a outra é inativada. Nada é apagado; a mesclagem fica no histórico de ações.
+              completados, os papéis se somam e a outra é inativada. Nada é apagado; a mesclagem fica na Auditoria.
             </p>
           </div>
         )}

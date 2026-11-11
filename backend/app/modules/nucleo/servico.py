@@ -123,18 +123,20 @@ def preenchimentos(db: Session, objeto: str) -> Counter:
     c: Counter = Counter()
     for valores in db.scalars(select(modelo.campos_custom)):
         for k, v in (valores or {}).items():
-            if v not in (None, ""):
+            if v not in (None, "", []):
                 c[k] += 1
     return c
 
 
 def valores_em_uso(db: Session, objeto: str, slug: str) -> Counter:
+    """{opção: quantos registros a usam}. Seleção múltipla (lista) conta cada opção marcada."""
     modelo = _modelo_do_objeto(objeto)
     c: Counter = Counter()
     for valores in db.scalars(select(modelo.campos_custom)):
         v = (valores or {}).get(slug)
-        if v not in (None, ""):
-            c[str(v)] += 1
+        for item in (v if isinstance(v, list) else [v]):
+            if item not in (None, ""):
+                c[str(item)] += 1
     return c
 
 

@@ -54,6 +54,8 @@ class TrocarSenhaIn(BaseModel):
 class MePatch(BaseModel):
     nome: str | None = Field(default=None, min_length=2, max_length=150)
     telefone: str | None = Field(default=None, max_length=20)
+    # assinatura dos e-mails enviados por mim; vazio/null = usar a assinatura padrão da Identidade
+    assinatura_email: str | None = Field(default=None, max_length=4000)
 
 
 class PrimeiroAcessoIn(BaseModel):
@@ -93,6 +95,8 @@ class UsuarioMe(Schema):
     somente_meus_registros: bool = False
     permissoes: list[str] = []
     organizacao: OrganizacaoInfo | None = None  # None com um banco só
+    assinatura_email: str | None = None
+    assinatura_imagem_url: str | None = None  # "/auth/me/assinatura-imagem?v=<versão>" (sem /api) ou None
 
 
 class TokenOut(Schema):

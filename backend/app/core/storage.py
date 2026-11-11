@@ -55,6 +55,7 @@ def registrar_categoria(nome: str, permissao: str | None, extensoes: frozenset[s
 
 registrar_categoria("usuarios", None, IMAGENS, 4)
 registrar_categoria("identidade", None, IMAGENS, 3)
+registrar_categoria("assinaturas", None, frozenset({".png", ".jpg", ".jpeg"}), 1)  # imagem da assinatura de e-mail
 
 
 def categoria(nome: str) -> Categoria:

@@ -29,14 +29,51 @@ import { useAuth } from "@/lib/auth";
 import {
   ROTULO_OBJETO,
   ROTULO_TIPO_CAMPO,
+  TIPOS_CAMPO_CRIACAO,
   type CampoCustom,
   type DependenciasCampo,
   type EtapaOpcao,
+  type FunilOpcao,
   type ObjetoCampo,
   type TipoCampo,
 } from "@/lib/tipos-nucleo";
 
 import { RodapeFormulario, useInvalidarCadastros } from "./comum";
+
+/** Tipos com lista de opções. */
+const COM_OPCOES: TipoCampo[] = ["lista", "multipla"];
+
+interface FunilEscolha {
+  chave: string;
+  nome: string;
+  etapas: { id: number; nome: string }[];
+}
+
+/** Funis com etapas: GET /comercial/funis; sem acesso ao Comercial, agrupa GET /nucleo/campos/etapas pelo funil. */
+function useFunisParaCampos(ligado: boolean) {
+  return useQuery({
+    queryKey: ["nucleo", "campos", "funis"],
+    enabled: ligado,
+    staleTime: 60_000,
+    meta: { silencioso: true },
+    queryFn: async (): Promise<FunilEscolha[]> => {
+      try {
+        const funis = await api.get<FunilOpcao[]>("/comercial/funis");
+        return funis.map((f) => ({ chave: String(f.id), nome: f.nome, etapas: f.etapas.map((e) => ({ id: e.id, nome: e.nome })) }));
+      } catch {
+        const etapas = await api.get<EtapaOpcao[]>("/nucleo/campos/etapas");
+        const grupos = new Map<string, FunilEscolha>();
+        for (const e of etapas) {
+          const chave = e.funil_id != null ? String(e.funil_id) : `n:${e.funil_nome}`;
+          const g = grupos.get(chave) ?? { chave, nome: e.funil_nome, etapas: [] };
+          g.etapas.push({ id: e.id, nome: e.nome });
+          grupos.set(chave, g);
+        }
+        return [...grupos.values()];
+      }
+    },
+  });
+}
 
 const ROTULO_DEP = { dashboard: "Dashboard", automacao: "Automação", etapa: "Etapa", registros: "Cadastro" } as const;
 
@@ -59,20 +96,24 @@ function FormularioCampo({ c, formId, onEnviar, desabilitado }: { c?: CampoCusto
     exigido_na_etapa_id: c?.exigido_na_etapa_id ?? null,
   });
   const set = <K extends keyof FormCampo>(k: K, v: FormCampo[K]) => setF((x) => ({ ...x, [k]: v }));
-  const etapas = useQuery({
-    queryKey: ["nucleo", "campos", "etapas"],
-    queryFn: () => api.get<EtapaOpcao[]>("/nucleo/campos/etapas"),
-    enabled: f.objeto === "oportunidade",
-  });
+  const funis = useFunisParaCampos(f.objeto === "oportunidade");
+  // funil escolhido; null = deduz do campo salvo (funil que contém a etapa exigida)
+  const [funilEscolhido, setFunilEscolhido] = useState<string | null>(null);
+  const funilAtual =
+    funilEscolhido ??
+    (f.exigido_na_etapa_id != null ? ((funis.data ?? []).find((g) => g.etapas.some((e) => e.id === f.exigido_na_etapa_id))?.chave ?? "") : "");
+  const etapasDoFunil = (funis.data ?? []).find((g) => g.chave === funilAtual)?.etapas ?? [];
+  // campo antigo pode ser sim/não: aparece só para exibir o tipo gravado
+  const tipos = c && !TIPOS_CAMPO_CRIACAO.includes(c.tipo) ? [...TIPOS_CAMPO_CRIACAO, c.tipo] : TIPOS_CAMPO_CRIACAO;
   return (
     <form
       id={formId}
       className="flex flex-col gap-4"
       onSubmit={(e) => {
         e.preventDefault();
-        const opcoes = f.tipo === "lista" ? f.opcoes.split("\n").map((o) => o.trim()).filter(Boolean) : [];
+        const opcoes = COM_OPCOES.includes(f.tipo) ? f.opcoes.split("\n").map((o) => o.trim()).filter(Boolean) : [];
         const base = { nome: f.nome, obrigatorio: f.obrigatorio, exigido_na_etapa_id: f.objeto === "oportunidade" ? f.exigido_na_etapa_id : null };
-        onEnviar(c ? { ...base, ...(c.tipo === "lista" ? { opcoes } : {}) } : { ...base, tipo: f.tipo, objeto: f.objeto, opcoes });
+        onEnviar(c ? { ...base, ...(COM_OPCOES.includes(c.tipo) ? { opcoes } : {}) } : { ...base, tipo: f.tipo, objeto: f.objeto, opcoes });
       }}
     >
       <Field label="Nome" obrigatorio>
@@ -81,7 +122,7 @@ function FormularioCampo({ c, formId, onEnviar, desabilitado }: { c?: CampoCusto
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Tipo">
           <NativeSelect value={f.tipo} disabled={!!c || desabilitado} onChange={(e) => set("tipo", e.target.value as TipoCampo)}>
-            {(Object.keys(ROTULO_TIPO_CAMPO) as TipoCampo[]).map((t) => (
+            {tipos.map((t) => (
               <option key={t} value={t}>
                 {ROTULO_TIPO_CAMPO[t]}
               </option>
@@ -97,8 +138,13 @@ function FormularioCampo({ c, formId, onEnviar, desabilitado }: { c?: CampoCusto
         </Field>
       </div>
       {c && <p className="text-xs text-muted">Tipo e objeto não mudam depois de criado: os valores já gravados dependem deles.</p>}
-      {f.tipo === "lista" && (
-        <Field label="Opções" obrigatorio dica="Uma por linha. Opção em uso não pode sair da lista.">
+      {f.tipo === "link" && <p className="text-xs text-muted">Aceita endereço completo, começando com http:// ou https://.</p>}
+      {COM_OPCOES.includes(f.tipo) && (
+        <Field
+          label="Opções"
+          obrigatorio
+          dica={f.tipo === "multipla" ? "Uma por linha; o registro pode marcar várias. Opção em uso não pode sair da lista." : "Uma por linha. Opção em uso não pode sair da lista."}
+        >
           <Textarea value={f.opcoes} disabled={desabilitado} rows={4} onChange={(e) => set("opcoes", e.target.value)} placeholder={"Baixo\nMédio\nAlto"} />
         </Field>
       )}
@@ -107,17 +153,44 @@ function FormularioCampo({ c, formId, onEnviar, desabilitado }: { c?: CampoCusto
         Obrigatório no cadastro
       </label>
       {f.objeto === "oportunidade" && (
-        <Field label="Exigir na etapa" dica="Opcional. A oportunidade só avança para esta etapa com o campo preenchido.">
-          <NativeSelect value={f.exigido_na_etapa_id ?? ""} disabled={desabilitado} onChange={(e) => set("exigido_na_etapa_id", e.target.value ? Number(e.target.value) : null)}>
-            <option value="">Não exigir</option>
-            {(etapas.data ?? []).map((et) => (
-              <option key={et.id} value={et.id}>
-                {et.funil_nome} · {et.nome}
-              </option>
-            ))}
-          </NativeSelect>
-        </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Exigir no funil" dica="Opcional. A oportunidade só avança para a etapa com o campo preenchido.">
+            <NativeSelect
+              value={funilAtual}
+              disabled={desabilitado}
+              onChange={(e) => {
+                setFunilEscolhido(e.target.value);
+                set("exigido_na_etapa_id", null);
+              }}
+            >
+              <option value="">Não exigir</option>
+              {(funis.data ?? []).map((g) => (
+                <option key={g.chave} value={g.chave}>
+                  {g.nome}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+          {funilAtual && (
+            <Field label="Escolher na etapa" obrigatorio>
+              <NativeSelect
+                value={f.exigido_na_etapa_id ?? ""}
+                disabled={desabilitado}
+                required
+                onChange={(e) => set("exigido_na_etapa_id", e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">Selecionar</option>
+                {etapasDoFunil.map((et) => (
+                  <option key={et.id} value={et.id}>
+                    {et.nome}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
+          )}
+        </div>
       )}
+      {funis.isError && f.objeto === "oportunidade" && <p className="text-xs text-muted">Não foi possível carregar os funis agora.</p>}
       <p className="text-xs text-muted">O campo aparece no cadastro do objeto, nos filtros, nos dashboards e nas automações.</p>
     </form>
   );
@@ -278,8 +351,8 @@ export function TelaCampos() {
           <strong className="text-[13px]">{c.nome}</strong> {c.arquivado && <Etiqueta tom="amber">Arquivado</Etiqueta>} {c.obrigatorio && <Etiqueta tom="azul">Obrigatório</Etiqueta>}
           <p className="text-muted">
             {ROTULO_TIPO_CAMPO[c.tipo]} · {ROTULO_OBJETO[c.objeto]}
-            {c.tipo === "lista" && c.opcoes.length > 0 && ` · ${c.opcoes.join(", ")}`}
-            {c.etapa_nome && ` · exigido em ${c.etapa_nome}`}
+            {COM_OPCOES.includes(c.tipo) && c.opcoes.length > 0 && ` · ${c.opcoes.join(", ")}`}
+            {c.etapa_nome && ` · exigido em ${c.funil_nome ? `${c.funil_nome} › ` : ""}${c.etapa_nome}`}
           </p>
         </>
       ),
@@ -330,6 +403,8 @@ export function TelaCampos() {
             { titulo: "Objeto", valor: (c) => ROTULO_OBJETO[c.objeto] },
             { titulo: "Opções", valor: (c) => c.opcoes.join(" / ") },
             { titulo: "Obrigatório", valor: (c) => (c.obrigatorio ? "Sim" : "Não") },
+            { titulo: "Exigido no funil", valor: (c) => c.funil_nome ?? "" },
+            { titulo: "Exigido na etapa", valor: (c) => c.etapa_nome ?? "" },
             { titulo: "Registros preenchidos", valor: (c) => c.registros_preenchidos },
             { titulo: "Arquivado", valor: (c) => (c.arquivado ? "Sim" : "Não") },
           ],

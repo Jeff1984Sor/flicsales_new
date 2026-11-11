@@ -31,3 +31,10 @@
   backup, remover o link sites-enabled/flicsales-os-dominio, nginx -t, reload.
   Pendências: COOKIE_SECURE=false no front de prod (herdado do modo IP; ligar e fechar a porta 10076 quando não precisar
   mais da conferência por IP); hml ainda não instalado; migração dos clientes do flicsales antigo.
+- 10/11/2026 — Ajustes do Núcleo (backend, contrato `docs/contrato-nucleo-ajustes-11-2026.md`): migração
+  `0005_nucleo_ajustes` (LGPD da pessoa, campos `multipla`/`link`, assinatura de e-mail por usuário).
+  Pendências: bloqueio de envio automático para pessoa com opt-out — ainda não há envio real (automações de envio
+  aguardam conector); regra pronta em `app.domain.cadastro.aceita_envio_automatico`, pedido em
+  `docs/progresso-orquestracao.md`. Filtro de indicador por campo `multipla`: pedido em `docs/progresso-comercial.md`.
+  Comunicações/cobranças/propostas ainda não enviam e-mail: quando enviarem, usar `email.enviar(..., remetente=usuario)`.
+

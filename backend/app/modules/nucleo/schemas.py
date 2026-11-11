@@ -11,7 +11,8 @@ Papel = Literal["prospect", "cliente", "fornecedor", "parceiro"]
 Canal = Literal["email", "ligacao", "whatsapp"]
 TipoProduto = Literal["servico", "produto"]
 Natureza = Literal["receita", "despesa"]
-TipoCampo = Literal["texto", "numero", "moeda", "data", "sim_nao", "lista"]
+# "lista" = seleção única, "multipla" = seleção múltipla, "link" = hiperlink; "sim_nao" só para campos antigos
+TipoCampo = Literal["texto", "numero", "moeda", "data", "sim_nao", "lista", "multipla", "link"]
 ObjetoCampo = Literal["empresa", "pessoa", "oportunidade"]
 
 
@@ -177,6 +178,9 @@ class _PessoaCampos(_EnderecoCampos):
     canal_preferido: Canal | None = None
     observacoes: str | None = None
     campos_custom: dict[str, Any] | None = None
+    # LGPD: valores de app.domain.cadastro.BASES_LEGAIS / PERMISSOES_COMUNICACAO (fora da lista → 400)
+    base_legal: str | None = Field(default=None, max_length=30)
+    permissoes_comunicacao: list[str] | None = None
 
 
 class PessoaCriar(_PessoaCampos):
@@ -202,6 +206,8 @@ class PessoaSaida(_EnderecoSaida, Saida):
     observacoes: str | None
     campos_custom: dict[str, Any]
     usa_endereco_da_empresa: bool = True
+    base_legal: str | None = None
+    permissoes_comunicacao: list[str] = []
     ativo: bool
 
 
@@ -379,6 +385,9 @@ class CampoSaida(Saida):
     obrigatorio: bool
     exigido_na_etapa_id: int | None
     etapa_nome: str | None = None
+    funil_id: int | None = None  # funil da etapa que exige o campo
+    funil_nome: str | None = None
+    tipo_rotulo: str | None = None  # "Seleção única", "Seleção múltipla", "Hiperlink"…
     ordem: int
     arquivado: bool
     registros_preenchidos: int = 0
@@ -407,6 +416,7 @@ class ArquivarIn(Entrada):
 class EtapaOpcao(BaseModel):
     id: int
     nome: str
+    funil_id: int
     funil_nome: str
 
 

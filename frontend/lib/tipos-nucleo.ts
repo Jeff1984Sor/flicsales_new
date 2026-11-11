@@ -6,11 +6,13 @@ export type Situacao = "ativos" | "inativos" | "todos";
 export type CanalPreferido = "email" | "ligacao" | "whatsapp";
 export type TipoProduto = "servico" | "produto";
 export type Natureza = "receita" | "despesa";
-export type TipoCampo = "texto" | "numero" | "moeda" | "data" | "sim_nao" | "lista";
+/** `lista` = seleção única; `sim_nao` só existe em campos antigos (não é oferecido na criação). */
+export type TipoCampo = "texto" | "numero" | "moeda" | "data" | "sim_nao" | "lista" | "multipla" | "link";
 export type ObjetoCampo = "empresa" | "pessoa" | "oportunidade";
 
-/** Valor de um campo personalizado como a API guarda: texto, número, moeda ("1234.50"), data ("AAAA-MM-DD"), sim/não. */
-export type ValorCampo = string | number | boolean | null;
+/** Valor de um campo personalizado como a API guarda: texto, número, moeda ("1234.50"), data ("AAAA-MM-DD"), sim/não,
+ * seleção múltipla (lista de opções) e hiperlink (URL http/https). */
+export type ValorCampo = string | number | boolean | string[] | null;
 export type ValoresCampos = Record<string, ValorCampo>;
 
 export const PAPEIS: { valor: Papel; rotulo: string }[] = [
@@ -29,8 +31,42 @@ export const ROTULO_TIPO_CAMPO: Record<TipoCampo, string> = {
   moeda: "Moeda",
   data: "Data",
   sim_nao: "Sim/não",
-  lista: "Lista",
+  lista: "Seleção única",
+  multipla: "Seleção múltipla",
+  link: "Hiperlink",
 };
+/** Tipos oferecidos na criação de campo, na ordem da tela. */
+export const TIPOS_CAMPO_CRIACAO: TipoCampo[] = ["texto", "data", "numero", "moeda", "lista", "multipla", "link"];
+
+/** Origem da empresa: lista sugerida (o backend aceita qualquer texto; valor antigo aparece como opção). */
+export const ORIGENS_EMPRESA = [
+  "Indicação",
+  "Site / formulário",
+  "Prospecção ativa",
+  "Evento",
+  "Redes sociais",
+  "Parceiro",
+  "Importação",
+  "Outro",
+] as const;
+
+export type BaseLegal = "consentimento" | "legitimo_interesse" | "contrato" | "aguardando";
+export const BASES_LEGAIS: { valor: BaseLegal; rotulo: string }[] = [
+  { valor: "consentimento", rotulo: "Consentimento" },
+  { valor: "legitimo_interesse", rotulo: "Legítimo interesse" },
+  { valor: "contrato", rotulo: "Execução de contrato / Pré-contrato" },
+  { valor: "aguardando", rotulo: "Sem base legal definida / Aguardando validação" },
+];
+export const ROTULO_BASE_LEGAL: Record<string, string> = Object.fromEntries(BASES_LEGAIS.map((b) => [b.valor, b.rotulo]));
+
+export type PermissaoComunicacao = "whatsapp_telefone" | "email_marketing" | "comercial_pontual" | "opt_out";
+export const PERMISSOES_COMUNICACAO: { valor: PermissaoComunicacao; rotulo: string; curto: string }[] = [
+  { valor: "whatsapp_telefone", rotulo: "Aceita contato via WhatsApp / Telefone", curto: "WhatsApp / Telefone" },
+  { valor: "email_marketing", rotulo: "Aceita receber E-mail Marketing / Newsletters", curto: "E-mail marketing" },
+  { valor: "comercial_pontual", rotulo: "Apenas contato comercial pontual", curto: "Comercial pontual" },
+  { valor: "opt_out", rotulo: "Opt-out / Não deseja receber comunicações", curto: "Opt-out" },
+];
+export const ROTULO_PERMISSAO: Record<string, string> = Object.fromEntries(PERMISSOES_COMUNICACAO.map((p) => [p.valor, p.curto]));
 export const ROTULO_OBJETO: Record<ObjetoCampo, string> = { empresa: "Empresa", pessoa: "Pessoa", oportunidade: "Oportunidade" };
 
 /** Endereço estruturado de empresa e pessoa (CEP no formato 00000-000, UF com 2 letras). */
@@ -134,6 +170,10 @@ export interface Pessoa extends Endereco {
   observacoes: string | null;
   campos_custom: ValoresCampos;
   ativo: boolean;
+  /** LGPD: base legal do tratamento (ausente até o backend publicar o campo) */
+  base_legal?: BaseLegal | null;
+  /** LGPD: permissões de comunicação; `opt_out` é exclusivo */
+  permissoes_comunicacao?: PermissaoComunicacao[];
 }
 
 export interface Produto {
@@ -203,6 +243,9 @@ export interface CampoCustom {
   obrigatorio: boolean;
   exigido_na_etapa_id: number | null;
   etapa_nome: string | null;
+  /** funil da etapa exigida (ausente em backend antigo) */
+  funil_id?: number | null;
+  funil_nome?: string | null;
   ordem: number;
   arquivado: boolean;
   registros_preenchidos: number;
@@ -228,6 +271,14 @@ export interface EtapaOpcao {
   id: number;
   nome: string;
   funil_nome: string;
+  funil_id?: number;
+}
+
+/** Funil com as etapas, para "Exigir no funil" / "Escolher na etapa" (GET /comercial/funis, só o que a tela usa). */
+export interface FunilOpcao {
+  id: number;
+  nome: string;
+  etapas: { id: number; nome: string }[];
 }
 
 export interface EmpresaCurta {
@@ -364,4 +415,14 @@ export interface ResultadoImportacao {
   ignorar: number;
   erros: ErroImportacao[];
   previa: PreviaImportacao[];
+}
+
+// ---------------------------------------------------------------- assinatura de e-mail do usuário (Minha conta)
+/** Campos de assinatura que `GET/PATCH /auth/me` devolvem (ausentes até o backend publicá-los). */
+export interface AssinaturaUsuario {
+  assinatura_email?: string | null;
+  /** caminho no storage (só indica que há imagem) */
+  assinatura_imagem?: string | null;
+  /** URL autenticada da imagem (como `foto_url`), quando o backend a devolver */
+  assinatura_imagem_url?: string | null;
 }

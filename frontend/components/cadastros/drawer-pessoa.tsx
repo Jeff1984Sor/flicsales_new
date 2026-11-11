@@ -9,7 +9,8 @@
  *  - `empresaIdInicial?: number | null`     vincula a nova pessoa a esta empresa ("Novo contato" da empresa)
  *  - `onSalva?: (pessoa: Pessoa) => void`
  * Com empresa vinculada, "Usar endereço da empresa" (ligado por padrão) copia e trava o endereço; desligar libera.
- * "✧ Enriquecer com IA" separa nome, cargo e contatos de um texto colado.
+ * Grupo "ORIGEM" (LGPD): base legal e permissões de comunicação — opt-out é exclusivo (marcado, trava as demais;
+ * com outra marcada, opt-out fica travado).
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -19,17 +20,26 @@ import { Etiqueta } from "@/components/flic/etiqueta";
 import { Field, NativeSelect } from "@/components/flic/form";
 import { notificar } from "@/components/flic/toast";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { ROTULO_CANAL, type CanalPreferido, type Empresa, type Pessoa, type ValoresCampos } from "@/lib/tipos-nucleo";
+import {
+  BASES_LEGAIS,
+  PERMISSOES_COMUNICACAO,
+  ROTULO_CANAL,
+  type BaseLegal,
+  type CanalPreferido,
+  type Empresa,
+  type PermissaoComunicacao,
+  type Pessoa,
+  type ValoresCampos,
+} from "@/lib/tipos-nucleo";
 
 import { CamposPersonalizados } from "./campos-personalizados";
-import { dadosParaIA, mesclarSugestoes } from "./consultas";
 import { BlocoEndereco, enderecoDe, type ValorEndereco } from "./endereco";
-import { EnriquecerIA } from "./enriquecer-ia";
 import { RodapeFormulario, SeletorResponsavel, alterados, paraEnvio, txt, useInvalidarCadastros } from "./comum";
 import { SeletorEmpresa } from "./seletor-empresa";
 
@@ -44,23 +54,43 @@ interface FormPessoa extends ValorEndereco {
   observacoes: string;
   campos_custom: ValoresCampos;
   usa_endereco_da_empresa: boolean;
+  base_legal: BaseLegal | "";
+  permissoes_comunicacao: PermissaoComunicacao[];
 }
 
-const ROTULOS: Record<string, string> = {
-  nome: "Nome",
-  cargo: "Cargo / papel na compra",
-  email: "E-mail",
-  telefone: "Telefone / WhatsApp",
-  canal_preferido: "Canal preferido",
-  observacoes: "Observações",
-  cep: "CEP",
-  logradouro: "Logradouro",
-  numero: "Número",
-  complemento: "Complemento",
-  bairro: "Bairro",
-  cidade: "Cidade",
-  uf: "UF",
-};
+/** Permissões de comunicação com opt-out exclusivo. */
+function PermissoesComunicacao({
+  valor,
+  onChange,
+  disabled,
+}: {
+  valor: PermissaoComunicacao[];
+  onChange: (v: PermissaoComunicacao[]) => void;
+  disabled?: boolean;
+}) {
+  const optOut = valor.includes("opt_out");
+  const outras = valor.some((v) => v !== "opt_out");
+  return (
+    <div className="flex flex-col gap-2" role="group" aria-label="Permissão de comunicação">
+      {PERMISSOES_COMUNICACAO.map((p) => {
+        const travado = p.valor === "opt_out" ? outras : optOut;
+        return (
+          <label key={p.valor} className={`flex items-center gap-2.5 text-sm ${travado ? "text-muted" : ""}`}>
+            <Checkbox
+              checked={valor.includes(p.valor)}
+              disabled={disabled || travado}
+              onCheckedChange={(on) => {
+                if (on !== true) return onChange(valor.filter((x) => x !== p.valor));
+                onChange(p.valor === "opt_out" ? ["opt_out"] : [...valor.filter((x) => x !== "opt_out" && x !== p.valor), p.valor]);
+              }}
+            />
+            {p.rotulo}
+          </label>
+        );
+      })}
+    </div>
+  );
+}
 
 function formDe(p: Pessoa | undefined, empresaId: number | null): FormPessoa {
   return {
@@ -75,6 +105,8 @@ function formDe(p: Pessoa | undefined, empresaId: number | null): FormPessoa {
     campos_custom: p?.campos_custom ?? {},
     ...enderecoDe(p),
     usa_endereco_da_empresa: p?.usa_endereco_da_empresa ?? true,
+    base_legal: p?.base_legal ?? "",
+    permissoes_comunicacao: p?.permissoes_comunicacao ?? [],
   };
 }
 
@@ -119,23 +151,16 @@ function Formulario({
       onSubmit={(e) => {
         e.preventDefault();
         const atual = paraEnvio({ ...f, ...endereco }) as FormPessoa;
-        onSalvar(editando ? alterados(paraEnvio(inicial) as FormPessoa, atual) : atual);
+        if (editando) return onSalvar(alterados(paraEnvio(inicial) as FormPessoa, atual));
+        // cadastro novo: campos LGPD vazios não vão (servidor usa o padrão)
+        const { base_legal, permissoes_comunicacao, ...resto } = atual;
+        onSalvar({
+          ...resto,
+          ...(base_legal ? { base_legal } : {}),
+          ...(permissoes_comunicacao.length ? { permissoes_comunicacao } : {}),
+        });
       }}
     >
-      <EnriquecerIA
-        objeto="pessoa"
-        registroId={pessoaId}
-        dados={dadosParaIA({ ...f, ...endereco })}
-        rotulos={ROTULOS}
-        disabled={desabilitado}
-        onAplicar={(v) =>
-          setF((x) => {
-            // sugestão de endereço vale como endereço próprio (parte do endereço que estava na tela)
-            const mexeuEndereco = Object.keys(v).some((k) => k in endEmpresa);
-            return mexeuEndereco && seguirEmpresa ? mesclarSugestoes({ ...x, ...endereco, usa_endereco_da_empresa: false }, v) : mesclarSugestoes(x, v);
-          })
-        }
-      />
       <Field label="Nome" obrigatorio>
         <Input {...texto("nome")} required autoFocus={!editando} />
       </Field>
@@ -190,6 +215,22 @@ function Formulario({
         onChange={(p) => setF((x) => ({ ...x, ...p }))}
         dica={seguirEmpresa && !empresa.data?.cep && !empresa.data?.logradouro ? "A empresa ainda não tem endereço." : undefined}
       />
+      <div className="flex flex-col gap-4 border-t border-line pt-4">
+        <span className="eyebrow">ORIGEM</span>
+        <Field label="Base legal">
+          <NativeSelect value={f.base_legal} disabled={desabilitado} onChange={(e) => set("base_legal", e.target.value as BaseLegal | "")}>
+            <option value="">Selecionar</option>
+            {BASES_LEGAIS.map((b) => (
+              <option key={b.valor} value={b.valor}>
+                {b.rotulo}
+              </option>
+            ))}
+          </NativeSelect>
+        </Field>
+        <Field label="Permissão de comunicação" dica="Opt-out não combina com as demais.">
+          <PermissoesComunicacao valor={f.permissoes_comunicacao} onChange={(v) => set("permissoes_comunicacao", v)} disabled={desabilitado} />
+        </Field>
+      </div>
       <Field label="Observações">
         <Textarea value={f.observacoes} disabled={desabilitado} onChange={(e) => set("observacoes", e.target.value)} />
       </Field>

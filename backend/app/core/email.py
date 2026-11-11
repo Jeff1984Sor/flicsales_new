@@ -2,6 +2,10 @@
 
 Sem SMTP em dev, grava a mensagem em storage/outbox (.eml). Sem SMTP em hml/prod, registra erro e devolve False.
 Nunca registra o corpo da mensagem no log (pode conter link de redefinição de senha).
+
+Assinatura (app.domain.assinatura): `remetente=<Usuario>` = e-mail enviado POR um usuário (comunicação, cobrança,
+proposta) → assinatura dele (texto + imagem inline CID), ou a padrão da Identidade se ele não tem; `assinar=True`
+sem remetente = e-mail do sistema (senha, convite) → assinatura da Identidade. Sem os dois, nada é acrescentado.
 """
 
 import logging
@@ -13,7 +17,8 @@ from sqlalchemy.orm import Session
 from app.core import segredos, storage
 from app.core.config import settings
 from app.core.db import agora
-from app.core.models import ConfigEmail
+from app.core.models import ConfigEmail, Identidade, Usuario
+from app.domain import assinatura as _assinatura
 
 log = logging.getLogger(__name__)
 
@@ -29,12 +34,16 @@ def enviar(
     cco: list[str] | None = None,
     html: str | None = None,
     imagens: dict[str, tuple[bytes, str]] | None = None,
+    remetente: Usuario | None = None,
+    assinar: bool = False,
 ) -> bool:
     """Devolve True se a mensagem foi entregue ao SMTP (ou gravada no outbox em dev).
 
     `html`: versão HTML (multipart/alternative; `corpo` fica como texto puro). `imagens`: {cid: (bytes, mime)} embutidas
     no HTML (`<img src="cid:logo">`), em multipart/related."""
     config = db.get(ConfigEmail, 1) if db is not None else None
+    if remetente is not None or assinar:
+        corpo, html, imagens = assinar_mensagem(db, corpo, html, imagens, remetente=remetente)
     msg = EmailMessage()
     if config:
         msg["From"] = f"{config.remetente_nome} <{config.remetente_email}>"
@@ -87,3 +96,23 @@ def enviar(
         log.error("Falha ao enviar e-mail '%s': %s", assunto, type(e).__name__)
         return False
     return True
+
+
+_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+
+
+def assinar_mensagem(db: Session | None, corpo: str, html: str | None,
+                     imagens: dict[str, tuple[bytes, str]] | None, *, remetente: Usuario | None = None,
+                     ) -> tuple[str, str | None, dict[str, tuple[bytes, str]] | None]:
+    """Acrescenta a assinatura (do `remetente` ou, sem ele/sem assinatura própria, a da Identidade)."""
+    identidade = db.get(Identidade, 1) if db is not None else None
+    caminho = remetente.assinatura_imagem if remetente is not None else None
+    tem_imagem = storage.existe(caminho)
+    escolha = _assinatura.escolher(
+        texto_usuario=remetente.assinatura_email if remetente is not None else None, tem_imagem_usuario=tem_imagem,
+        texto_identidade=identidade.assinatura_email if identidade else None, do_sistema=remetente is None)
+    corpo, html = _assinatura.aplicar(corpo, html, escolha)
+    if escolha.com_imagem and caminho:
+        ext = "." + caminho.rsplit(".", 1)[-1].lower()
+        imagens = {**(imagens or {}), _assinatura.CID_IMAGEM: (storage.ler(caminho), _MIME.get(ext, "image/png"))}
+    return corpo, html, imagens

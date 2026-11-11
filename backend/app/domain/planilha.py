@@ -140,11 +140,12 @@ def opcao(valor: Any, opcoes: dict[str, str]) -> str | None:
     raise RegraViolada(f"Use uma das opções: {', '.join(opcoes)}.")
 
 
-def lista(valor: Any, opcoes: dict[str, str]) -> list[str] | None:
-    """Várias opções na mesma célula, separadas por vírgula, ponto e vírgula ou barra."""
+def lista(valor: Any, opcoes: dict[str, str], *, separadores: str = ",;/|") -> list[str] | None:
+    """Várias opções na mesma célula, separadas por vírgula, ponto e vírgula ou barra (ou só pelos `separadores`
+    pedidos — ex.: ";" quando a própria opção tem vírgula ou barra)."""
     if vazia(valor):
         return None
-    itens = [x for x in re.split(r"[,;/|]", str(valor)) if x.strip()]
+    itens = [x for x in re.split("[" + re.escape(separadores) + "]", str(valor)) if x.strip()]
     out: list[str] = []
     for item in itens:
         v = opcao(item, opcoes)

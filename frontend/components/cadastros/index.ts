@@ -27,7 +27,7 @@
  * Utilitários: paraEnvio, alterados, txt, CHIPS_SITUACAO, useInvalidarCadastros, useUsuariosOpcoes, useIdDaUrl,
  * RodapeFormulario.
  */
-export { CamposPersonalizados, formatarValorCampo, useCamposDoObjeto } from "./campos-personalizados";
+export { CamposPersonalizados, ValorCampoExibido, formatarValorCampo, useCamposDoObjeto } from "./campos-personalizados";
 export {
   CHIPS_SITUACAO,
   RodapeFormulario,

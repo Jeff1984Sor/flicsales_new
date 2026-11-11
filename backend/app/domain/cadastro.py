@@ -226,3 +226,52 @@ def preencher_vazios(atual: dict, consulta: dict, campos: tuple[str, ...] = CAMP
     """O que a consulta pública traz para os campos VAZIOS do cadastro (o que o usuário já preencheu não muda).
     Devolve só {campo: valor novo}."""
     return {c: consulta[c] for c in campos if not atual.get(c) and consulta.get(c)}
+
+
+# ================================================================================================= pessoa: LGPD
+# Base legal do tratamento (seleção única) e permissões de comunicação (múltipla). {valor gravado: rótulo da tela}
+BASES_LEGAIS = {
+    "consentimento": "Consentimento",
+    "legitimo_interesse": "Legítimo interesse",
+    "contrato": "Execução de contrato / Pré-contrato",
+    "aguardando": "Sem base legal definida / Aguardando validação",
+}
+PERMISSOES_COMUNICACAO = {
+    "whatsapp_telefone": "Aceita contato via WhatsApp / Telefone",
+    "email_marketing": "Aceita receber E-mail Marketing / Newsletters",
+    "comercial_pontual": "Apenas contato comercial pontual",
+    "opt_out": "Opt-out / Não deseja receber comunicações",
+}
+OPT_OUT = "opt_out"
+
+
+def validar_base_legal(valor: str | None) -> str | None:
+    """Uma das `BASES_LEGAIS` (valor gravado). Vazio → None."""
+    v = (valor or "").strip()
+    if not v:
+        return None
+    if v not in BASES_LEGAIS:
+        raise RegraViolada(f"Base legal inválida. Use: {', '.join(BASES_LEGAIS.values())}.")
+    return v
+
+
+def validar_permissoes_comunicacao(valores: list[str] | None) -> list[str]:
+    """Lista de `PERMISSOES_COMUNICACAO` sem repetição, na ordem do catálogo. `opt_out` é exclusivo: junto com
+    qualquer outra permissão é recusado. None/[] → []."""
+    if valores is None:
+        return []
+    if isinstance(valores, str):
+        raise RegraViolada("Envie as permissões de comunicação como lista.")
+    limpos = {str(v or "").strip() for v in valores} - {""}
+    desconhecidas = sorted(v for v in limpos if v not in PERMISSOES_COMUNICACAO)
+    if desconhecidas:
+        raise RegraViolada(f"Permissão de comunicação desconhecida: {', '.join(desconhecidas)}. "
+                           f"Use: {', '.join(PERMISSOES_COMUNICACAO.values())}.")
+    if OPT_OUT in limpos and len(limpos) > 1:
+        raise RegraViolada("Opt-out não combina com outras permissões de comunicação.")
+    return [p for p in PERMISSOES_COMUNICACAO if p in limpos]
+
+
+def aceita_envio_automatico(permissoes: list[str] | None) -> bool:
+    """Envio automático (automação, campanha) para a pessoa: bloqueado se ela pediu opt-out."""
+    return OPT_OUT not in (permissoes or [])

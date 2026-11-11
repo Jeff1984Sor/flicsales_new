@@ -121,6 +121,9 @@ class Pessoa(EnderecoMixin, Base, Timestamped):
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     # ligada: o endereço da pessoa acompanha o da empresa (app.domain.cadastro.resolver_endereco_pessoa/propagar_endereco)
     usa_endereco_da_empresa: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    # LGPD (migração 0005): app.domain.cadastro.BASES_LEGAIS / PERMISSOES_COMUNICACAO ("opt_out" é exclusivo)
+    base_legal: Mapped[str | None] = mapped_column(String(30))
+    permissoes_comunicacao: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
 
 
 class Produto(Base, Timestamped):
@@ -183,7 +186,8 @@ class CampoCustom(Base, Timestamped):
 
     __tablename__ = "campo_custom"
     __table_args__ = (
-        CheckConstraint("tipo IN ('texto', 'numero', 'moeda', 'data', 'sim_nao', 'lista')", name="tipo"),
+        CheckConstraint("tipo IN ('texto', 'numero', 'moeda', 'data', 'sim_nao', 'lista', 'multipla', 'link')",
+                        name="tipo"),
         CheckConstraint("objeto IN ('empresa', 'pessoa', 'oportunidade')", name="objeto"),
         UniqueConstraint("objeto", "slug", name="uq_campo_custom_objeto_slug"),
     )
@@ -193,7 +197,7 @@ class CampoCustom(Base, Timestamped):
     slug: Mapped[str] = mapped_column(String(60))
     tipo: Mapped[str] = mapped_column(String(10))
     objeto: Mapped[str] = mapped_column(String(15))
-    opcoes: Mapped[list[str]] = mapped_column(JSON, default=list)  # para tipo "lista"
+    opcoes: Mapped[list[str]] = mapped_column(JSON, default=list)  # para tipos "lista" e "multipla"
     obrigatorio: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     exigido_na_etapa_id: Mapped[int | None] = mapped_column(ForeignKey("etapa.id"))
     ordem: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

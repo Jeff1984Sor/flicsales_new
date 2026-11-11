@@ -44,10 +44,12 @@ from app.domain.cadastro import (
     normalizar_endereco,
     preencher_vazios,
     resolver_endereco_pessoa,
+    validar_base_legal,
     validar_documento_cadastro,
     validar_documento_livre,
     validar_nome,
     validar_papeis,
+    validar_permissoes_comunicacao,
 )
 from app.domain.caixa import validar_edicao_conta
 from app.modules.comercial.models import Etapa, Funil, Oportunidade
@@ -399,6 +401,7 @@ def duplicidades(ctx: Ctx):
 def _pessoa_saida(p: Pessoa, empresa: str | None, resp: str | None) -> PessoaSaida:
     s = PessoaSaida.model_validate(p)
     s.empresa_nome, s.responsavel_nome, s.campos_custom = empresa, resp, p.campos_custom or {}
+    s.permissoes_comunicacao = list(p.permissoes_comunicacao or [])
     return s
 
 
@@ -417,6 +420,10 @@ def _validar_pessoa(ctx: Ctx, p: Pessoa | None, dados: dict) -> dict:
         _usuario_existe(ctx, dados["responsavel_id"])
     if dados.get("email") and "@" not in dados["email"]:
         raise RegraViolada("Informe um e-mail válido.")
+    if "base_legal" in dados:
+        dados["base_legal"] = validar_base_legal(dados["base_legal"])
+    if "permissoes_comunicacao" in dados or p is None:
+        dados["permissoes_comunicacao"] = validar_permissoes_comunicacao(dados.get("permissoes_comunicacao"))
     if "campos_custom" in dados or p is None:
         dados["campos_custom"] = servico.validar_campos_custom(
             ctx.db, "pessoa", dados.get("campos_custom") or {}, p.campos_custom if p else None)
@@ -436,10 +443,14 @@ def _validar_pessoa(ctx: Ctx, p: Pessoa | None, dados: dict) -> dict:
 
 @router.get("/pessoas", response_model=Pagina[PessoaSaida])
 def listar_pessoas(ctx: Ctx, q: str | None = None, empresa_id: int | None = None, situacao: Situacao = "ativos",
-                   pagina: int = Query(1, ge=1), por_pagina: int = Query(50, ge=1, le=200)):
+                   base_legal: str | None = None, pagina: int = Query(1, ge=1),
+                   por_pagina: int = Query(50, ge=1, le=200)):
     consulta = (select(Pessoa, Empresa.nome, Usuario.nome).outerjoin(Empresa, Empresa.id == Pessoa.empresa_id)
                 .outerjoin(Usuario, Usuario.id == Pessoa.responsavel_id))
     consulta = _situacao(consulta, Pessoa.ativo, situacao)
+    if base_legal:  # "sem" = pessoas sem base legal registrada
+        consulta = consulta.where(Pessoa.base_legal.is_(None) if base_legal == "sem"
+                                  else Pessoa.base_legal == validar_base_legal(base_legal))
     if empresa_id is not None:
         consulta = consulta.where(Pessoa.empresa_id == empresa_id)
     if q and q.strip():
@@ -908,6 +919,9 @@ def _campo_saida(ctx: Ctx, c: CampoCustom, preenchidos: dict | None = None) -> C
     if c.exigido_na_etapa_id:
         etapa = ctx.db.get(Etapa, c.exigido_na_etapa_id)
         s.etapa_nome = etapa.nome if etapa else None
+        funil = ctx.db.get(Funil, etapa.funil_id) if etapa else None
+        s.funil_id, s.funil_nome = (funil.id, funil.nome) if funil else (None, None)
+    s.tipo_rotulo = regras.ROTULO_TIPO.get(c.tipo, c.tipo)
     cont = preenchidos if preenchidos is not None else servico.preenchimentos(ctx.db, c.objeto)
     s.registros_preenchidos = cont.get(c.slug, 0)
     s.dependencias_ativas = sum(1 for u in servico.dependencias_do_campo(ctx.db, c, preenchidos=s.registros_preenchidos)
@@ -920,8 +934,12 @@ def _validar_etapa(ctx: Ctx, objeto: str, etapa_id: int | None) -> None:
         return
     if objeto != "oportunidade":
         raise RegraViolada("Só campos de oportunidade podem ser exigidos por etapa.")
-    if ctx.db.get(Etapa, etapa_id) is None:
-        raise RegraViolada("Etapa não encontrada.")
+    etapa = ctx.db.get(Etapa, etapa_id)
+    if etapa is None:
+        raise RegraViolada("Etapa não encontrada. Escolha o funil e depois uma etapa dele.")
+    funil = ctx.db.get(Funil, etapa.funil_id)
+    if funil is None or not funil.ativo:
+        raise RegraViolada("O funil desta etapa está inativo. Escolha uma etapa de um funil ativo.")
 
 
 @router.get("/campos", response_model=list[CampoSaida])
@@ -940,9 +958,9 @@ def listar_campos(ctx: Ctx, objeto: Literal["empresa", "pessoa", "oportunidade"]
 @router.get("/campos/etapas", response_model=list[EtapaOpcao])
 def etapas_para_campos(ctx: Ctx):
     """Etapas de todos os funis ativos (para "exigir na etapa"). Só leitura no modelo do Comercial."""
-    linhas = ctx.db.execute(select(Etapa.id, Etapa.nome, Funil.nome).join(Funil, Funil.id == Etapa.funil_id)
+    linhas = ctx.db.execute(select(Etapa.id, Etapa.nome, Funil.id, Funil.nome).join(Funil, Funil.id == Etapa.funil_id)
                             .where(Funil.ativo.is_(True)).order_by(Funil.nome, Etapa.ordem)).all()
-    return [EtapaOpcao(id=i, nome=n, funil_nome=f) for i, n, f in linhas]
+    return [EtapaOpcao(id=i, nome=n, funil_id=fid, funil_nome=f) for i, n, fid, f in linhas]
 
 
 @router.post("/campos", response_model=CampoSaida, status_code=201)
@@ -977,7 +995,7 @@ def atualizar_campo(campo_id: int, dados: CampoAtualizar, ctx: Ctx):
     if "opcoes" in valores:
         valores["opcoes"] = regras.validar_definicao_campo(nome=c.nome, tipo=c.tipo, objeto=c.objeto,
                                                            opcoes=valores["opcoes"])
-        if c.tipo == "lista":
+        if c.tipo in regras.TIPOS_COM_OPCOES:
             em_uso = servico.valores_em_uso(ctx.db, c.objeto, c.slug)
             removidas = [o for o in em_uso if o not in valores["opcoes"]]
             if removidas:
@@ -987,7 +1005,7 @@ def atualizar_campo(campo_id: int, dados: CampoAtualizar, ctx: Ctx):
         valores["obrigatorio"] = False
     if "ordem" in valores and valores["ordem"] is None:
         valores["ordem"] = 0
-    if "exigido_na_etapa_id" in valores:
+    if "exigido_na_etapa_id" in valores and valores["exigido_na_etapa_id"] != c.exigido_na_etapa_id:
         _validar_etapa(ctx, c.objeto, valores["exigido_na_etapa_id"])
     _alterar(ctx, c, valores, "campo_custom.alterar", "campo_custom", "Já existe campo com este nome neste objeto.")
     return _campo_saida(ctx, c)

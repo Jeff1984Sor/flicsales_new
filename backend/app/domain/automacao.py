@@ -406,8 +406,11 @@ def condicao_ok(dados: dict[str, Any], campo: str | None, operador: str | None, 
     atual = dados.get(campo)
     if operador == "preenchido":
         return atual not in (None, "", [], {})
-    if atual in (None, ""):
+    if atual in (None, "", []):
         return operador == "diferente" and valor not in (None, "")
+    if isinstance(atual, list | tuple):  # seleção múltipla: "igual" = a opção está marcada
+        contem = any(_norm(x) == _norm(valor) for x in atual)
+        return contem if operador == "igual" else (not contem if operador == "diferente" else False)
     if operador in ("maior", "menor"):
         a, b = _num(atual), _num(valor)
         if a is None or b is None:
@@ -439,7 +442,7 @@ def variaveis_oportunidade(o: OportunidadeFoto) -> dict[str, str]:
     v = {"empresa.nome": o.empresa or "—", "contato.nome": o.contato or "—", "oportunidade.titulo": o.titulo,
          "oportunidade.valor": formatar_brl(o.valor), "oportunidade.etapa": o.etapa or "—"}
     for k, val in (o.campos_custom or {}).items():
-        v[f"oportunidade.{chave_campo(k)}"] = str(val)
+        v[f"oportunidade.{chave_campo(k)}"] = ", ".join(map(str, val)) if isinstance(val, list) else str(val)
     return v
 
 

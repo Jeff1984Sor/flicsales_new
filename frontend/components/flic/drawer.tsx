@@ -10,7 +10,7 @@
  *  - `titulo?: ReactNode`          título grande (h2 23px)
  *  - `descricao?: ReactNode`       linha cinza abaixo do título
  *  - `rotulo?: string`             eyebrow do registro acima do título (ex.: "OPORTUNIDADE / NEGOCIAÇÃO")
- *  - `eyebrow?: string`            cabeçalho fixo do painel (padrão "FLICSALES / CONTEXTO")
+ *  - `eyebrow?: string`            cabeçalho fixo do painel (padrão vazio: não renderiza)
  *  - `rodape?: ReactNode`          barra fixa no fim (botões Salvar/Cancelar)
  *  - `largura?: number`            px (padrão 470)
  *  - `children`                    conteúdo (rolável)
@@ -50,7 +50,7 @@ export function Drawer({
   titulo,
   descricao,
   rotulo,
-  eyebrow = "FLICSALES / CONTEXTO",
+  eyebrow,
   rodape,
   largura = 470,
   className,
@@ -114,8 +114,8 @@ export function Drawer({
           )}
         >
           <div className="flex-1 overflow-y-auto p-[26px]">
-            <div className="mb-[17px] flex items-center justify-between">
-              <span className="eyebrow">{eyebrow}</span>
+            <div className={cn("mb-[17px] flex items-center", eyebrow ? "justify-between" : "justify-end")}>
+              {eyebrow && <span className="eyebrow">{eyebrow}</span>}
               <button
                 type="button"
                 onClick={onFechar}

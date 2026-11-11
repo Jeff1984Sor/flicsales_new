@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Pagina } from "@/lib/types";
-import { ROTULO_CANAL, type Pessoa, type Situacao } from "@/lib/tipos-nucleo";
+import { ROTULO_BASE_LEGAL, ROTULO_CANAL, ROTULO_PERMISSAO, type Pessoa, type Situacao } from "@/lib/tipos-nucleo";
 
 import { CHIPS_SITUACAO } from "./comum";
 import { DrawerPessoa } from "./drawer-pessoa";
@@ -54,6 +54,18 @@ export function TelaPessoas({ embutida, idInicial = null }: { embutida?: boolean
     { id: "empresa", titulo: "Empresa", celula: (p) => p.empresa_nome ?? <span className="text-muted">Sem empresa vinculada</span> },
     { id: "contato", titulo: "E-mail / telefone", celula: (p) => [p.email, p.telefone].filter(Boolean).join(" · ") || "—" },
     { id: "canal", titulo: "Canal preferido", celula: (p) => (p.canal_preferido ? ROTULO_CANAL[p.canal_preferido] : "—") },
+    {
+      id: "lgpd",
+      titulo: "Base legal",
+      celula: (p) =>
+        p.permissoes_comunicacao?.includes("opt_out") ? (
+          <Etiqueta tom="amber">Opt-out</Etiqueta>
+        ) : p.base_legal ? (
+          (ROTULO_BASE_LEGAL[p.base_legal] ?? p.base_legal)
+        ) : (
+          "—"
+        ),
+    },
     { id: "resp", titulo: "Responsável", celula: (p) => p.responsavel_nome ?? "—" },
   ];
 
@@ -81,6 +93,11 @@ export function TelaPessoas({ embutida, idInicial = null }: { embutida?: boolean
             { titulo: "Telefone / WhatsApp", valor: (p) => p.telefone },
             { titulo: "Responsável", valor: (p) => p.responsavel_nome },
             { titulo: "Canal preferido", valor: (p) => (p.canal_preferido ? ROTULO_CANAL[p.canal_preferido] : "") },
+            { titulo: "Base legal", valor: (p) => (p.base_legal ? (ROTULO_BASE_LEGAL[p.base_legal] ?? p.base_legal) : "") },
+            {
+              titulo: "Permissão de comunicação",
+              valor: (p) => (p.permissoes_comunicacao ?? []).map((x) => ROTULO_PERMISSAO[x] ?? x).join("; "),
+            },
           ],
         }}
       >

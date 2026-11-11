@@ -235,7 +235,7 @@ export default function IdentidadePage() {
               </label>
             </div>
           </Field>
-          <Field label="Assinatura padrão dos e-mails" dica="Vai no fim dos e-mails enviados aos tomadores.">
+          <Field label="Assinatura padrão (quando o usuário não tem a sua)" dica="Vai no fim dos e-mails do sistema e dos usuários que não cadastraram a própria em Minha conta.">
             <Textarea rows={4} value={assinatura} onChange={(e) => setAssinatura(e.target.value)} placeholder={"Atenciosamente,\nEquipe comercial"} />
           </Field>
           <div className="flex justify-end gap-2 border-t pt-4">
