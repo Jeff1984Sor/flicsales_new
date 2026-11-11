@@ -9,6 +9,7 @@ import { lerForm, nulo, numeroOuNulo, useInvalidarComercial, useOpcoes } from "@
 import { BarraFiltros } from "@/components/flic/barra-filtros";
 import { CampoDrawer, Drawer } from "@/components/flic/drawer";
 import { EmptyState } from "@/components/flic/empty-state";
+import { EnviarEmailDrawer } from "@/components/flic/enviar-email";
 import { Etiqueta } from "@/components/flic/etiqueta";
 import { useAtalhoNovo } from "@/components/flic/eventos";
 import { Fonte } from "@/components/flic/fonte";
@@ -57,6 +58,7 @@ export default function ComunicacoesPage() {
   const [importar, setImportar] = useState(false);
   const [sel, setSel] = useState<Comunicacao | null>(null);
   const [autoAnalisar, setAutoAnalisar] = useState(false);
+  const [email, setEmail] = useState<{ empresaId: number | null; oportunidadeId: number | null; assunto?: string } | null>(null);
   useAtalhoNovo(() => editar && setImportar(true));
 
   const { data: lista, isPending } = useQuery({
@@ -69,6 +71,13 @@ export default function ComunicacoesPage() {
       <PageHeader
         titulo="Comunicações"
         descricao="Reuniões, e-mails e mensagens com contexto de negócio."
+        acoes={
+          editar ? (
+            <Button variant="outline" onClick={() => setEmail({ empresaId: null, oportunidadeId: null })}>
+              ✉ Enviar e-mail
+            </Button>
+          ) : undefined
+        }
         acao={editar ? <Button onClick={() => setImportar(true)}>+ Importar conteúdo</Button> : undefined}
       />
       <BarraFiltros
@@ -152,8 +161,17 @@ export default function ComunicacoesPage() {
         {importar && <FormImportar onFechar={() => setImportar(false)} aoImportar={setSel} />}
       </Drawer>
       <Drawer aberto={!!sel} onFechar={() => setSel(null)} titulo={sel ? `Análise de ${rotuloCanal(sel.canal)}` : undefined} descricao={sel?.titulo ?? undefined}>
-        {sel && <PainelAnalise key={sel.id} c={sel} editar={editar} autoAnalisar={autoAnalisar} />}
+        {sel && (
+          <PainelAnalise
+            key={sel.id}
+            c={sel}
+            editar={editar}
+            autoAnalisar={autoAnalisar}
+            onEmail={() => setEmail({ empresaId: sel.empresa_id, oportunidadeId: sel.oportunidade_id, assunto: sel.titulo ? `Re: ${sel.titulo}` : undefined })}
+          />
+        )}
       </Drawer>
+      {email && <EnviarEmailComunicacao key={`${email.empresaId}-${email.oportunidadeId}`} inicial={email} onFechar={() => setEmail(null)} />}
     </>
   );
 }
@@ -242,7 +260,68 @@ function FormImportar({ onFechar, aoImportar }: { onFechar: () => void; aoImport
   );
 }
 
-function PainelAnalise({ c, editar, autoAnalisar = false }: { c: Comunicacao; editar: boolean; autoAnalisar?: boolean }) {
+/** "✉ Enviar e-mail" em Comunicações: escolhe a oportunidade/empresa (sugere as pessoas dela) e envia; vira comunicação. */
+function EnviarEmailComunicacao({
+  inicial,
+  onFechar,
+}: {
+  inicial: { empresaId: number | null; oportunidadeId: number | null; assunto?: string };
+  onFechar: () => void;
+}) {
+  const { data: opcoes } = useOpcoes();
+  const [opId, setOpId] = useState(inicial.oportunidadeId != null ? String(inicial.oportunidadeId) : "");
+  const [empId, setEmpId] = useState(inicial.empresaId != null ? String(inicial.empresaId) : "");
+  const op = (opcoes?.oportunidades ?? []).find((o) => String(o.id) === opId);
+  const empresaId = empId ? Number(empId) : (op?.empresa_id ?? null);
+  return (
+    <EnviarEmailDrawer
+      aberto
+      onFechar={onFechar}
+      destino={{ tipo: "comunicacao" }}
+      empresaId={empresaId}
+      oportunidadeId={opId ? Number(opId) : null}
+      modelos="comercial"
+      contexto="A mensagem enviada fica registrada como comunicação de e-mail."
+      assuntoInicial={inicial.assunto}
+      vinculo={
+        <>
+          <CampoDrawer rotulo="Oportunidade">
+            <NativeSelect value={opId} onChange={(e) => setOpId(e.target.value)}>
+              <option value="">Sem oportunidade</option>
+              {(opcoes?.oportunidades ?? []).map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.nome}
+                </option>
+              ))}
+            </NativeSelect>
+          </CampoDrawer>
+          <CampoDrawer rotulo="Empresa" dica="Em branco: a empresa da oportunidade.">
+            <NativeSelect value={empId} onChange={(e) => setEmpId(e.target.value)}>
+              <option value="">Da oportunidade / sem empresa</option>
+              {(opcoes?.empresas ?? []).map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.nome}
+                </option>
+              ))}
+            </NativeSelect>
+          </CampoDrawer>
+        </>
+      }
+    />
+  );
+}
+
+function PainelAnalise({
+  c,
+  editar,
+  autoAnalisar = false,
+  onEmail,
+}: {
+  c: Comunicacao;
+  editar: boolean;
+  autoAnalisar?: boolean;
+  onEmail: () => void;
+}) {
   const invalidar = useInvalidarComercial();
   const [analise, setAnalise] = useState<AnaliseComunicacao | null>(c.analise);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -332,6 +411,11 @@ function PainelAnalise({ c, editar, autoAnalisar = false }: { c: Comunicacao; ed
         <Button variant="outline" disabled={responder.isPending} onClick={() => responder.mutate()}>
           Preparar resposta
         </Button>
+        {editar && (
+          <Button variant="outline" onClick={onEmail}>
+            ✉ Enviar e-mail
+          </Button>
+        )}
       </div>
 
       {rascunho && (

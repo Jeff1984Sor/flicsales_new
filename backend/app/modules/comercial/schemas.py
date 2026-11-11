@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.core.schemas import Schema
+from app.core.schemas import EnvioEmailIn, Schema
 
 Texto = str | None
 
@@ -295,6 +295,17 @@ class AtividadeOut(Schema):
 
 
 # ------------------------------------------------------------------------------------------------ comunicações
+class ComunicacaoEnvioIn(EnvioEmailIn):
+    """E-mail enviado pela tela Comunicações: vira uma Comunicação canal e-mail."""
+
+    empresa_id: int | None = None
+    oportunidade_id: int | None = None
+
+
+class PropostaEnvioIn(EnvioEmailIn):
+    anexar_pdf: bool = True
+
+
 class ComunicacaoCriar(BaseModel):
     canal: Literal["reuniao", "email", "whatsapp", "notas"]
     titulo: str | None = Field(default=None, max_length=200)

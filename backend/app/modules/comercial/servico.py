@@ -20,12 +20,14 @@ from app.domain.atividade import atrasada
 from app.domain.cadastro import chave_de_nome, validar_nome
 from app.domain.dinheiro import ZERO
 from app.domain.funil import alem_do_limite, dias_na_etapa
+from app.domain.modelos_comunicacao import CONTEXTOS
 from app.modules.comercial import regras
 from app.modules.comercial.models import (
     Atividade,
     Comunicacao,
     Etapa,
     Funil,
+    ModeloComunicacao,
     Oportunidade,
     OportunidadeEvento,
     Proposta,
@@ -88,6 +90,20 @@ def conferir_oportunidade_vinculo(ctx: Contexto, oportunidade_id: int | None) ->
     if op is None or not ctx.pode_acessar(op.responsavel_id):
         raise RegraViolada("Oportunidade não encontrada.")
     return op
+
+
+def conferir_modelo(db: Session, modelo_id: int | None, contexto: str) -> ModeloComunicacao | None:
+    """Modelo usado num envio: precisa existir e ser da área (`contexto` comercial|financeiro → a sua + geral)."""
+    if modelo_id is None:
+        return None
+    m = db.get(ModeloComunicacao, modelo_id)
+    if m is None or m.classificacao not in CONTEXTOS[contexto]:
+        raise RegraViolada("Modelo de comunicação não encontrado. Escolha outro modelo ou escreva a mensagem.")
+    return m
+
+
+def conferir_modelo_comercial(db: Session, modelo_id: int | None) -> ModeloComunicacao | None:
+    return conferir_modelo(db, modelo_id, "comercial")
 
 
 def resolver_empresa(ctx: Contexto, *, empresa_id: int | None, empresa_nome: str | None,

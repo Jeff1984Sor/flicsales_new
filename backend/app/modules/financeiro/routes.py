@@ -12,17 +12,24 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 
-from app.core import audit, ia
+from app.core import audit, envio, ia
 from app.core.db import agora, hoje
 from app.core.deps import Ctx
 from app.core.models import Usuario
-from app.core.schemas import Pagina
+from app.core.permissoes import adicionar_regras
+from app.core.schemas import EnvioEmailIn, EnvioEmailOut, Pagina
 from app.domain import RegraViolada
 from app.domain import caixa as dom_caixa
 from app.domain import cobranca as dom_cob
+from app.domain import envio as dom_envio
 from app.domain import recorrencia as dom_rec
 from app.domain import titulos as dom
+from app.domain.dinheiro import formatar_brl
 from app.domain.leitura import TituloResumo, ler_momento
+from app.domain.modelos_comunicacao import CONTEXTOS
+from app.modules.comercial import regras as regras_modelo
+from app.modules.comercial.models import ModeloComunicacao
+from app.modules.comercial.schemas import ModeloOut, PreviaModeloOut
 from app.modules.financeiro import operacoes as op
 from app.modules.financeiro.models import Baixa, Cobranca, Recorrencia, Titulo, Transferencia
 from app.modules.financeiro.schemas import (
@@ -49,7 +56,10 @@ from app.modules.financeiro.schemas import (
     TransferenciaOut,
 )
 from app.modules.financeiro.servico import filtrar_direcao_visivel, pode_ver_caixa, pode_ver_pagar
-from app.modules.nucleo.models import Categoria, CentroCusto, ContaFinanceira, Empresa
+from app.modules.nucleo.models import Categoria, CentroCusto, ContaFinanceira, Empresa, Pessoa
+
+# prévia de modelo não grava nada: basta ver as cobranças (o padrão de POST seria `editar`)
+adicionar_regras([("POST", r"/financeiro/cobrancas/\d+/modelos/\d+/previa$", "financeiro.cobrancas.ver")])
 
 router = APIRouter(prefix="/financeiro", tags=["financeiro"])
 
@@ -520,6 +530,35 @@ def listar_cobrancas(ctx: Ctx, situacao: Literal["todas", "em_acompanhamento", "
     return op.cobrancas_para_saida(ctx.db, itens, hoje())
 
 
+# Modelos de comunicação do Financeiro (financeiro + geral). O perfil Financeiro não lê /comercial/modelos.
+CONTEXTO_MODELOS = "financeiro"
+
+
+def _modelo_out(m: ModeloComunicacao) -> ModeloOut:
+    return ModeloOut.model_validate(m).model_copy(update={
+        "variaveis": regras_modelo.variaveis_do_texto(f"{m.assunto or ''} {m.conteudo}")})
+
+
+@router.get("/cobrancas/modelos", response_model=list[ModeloOut])
+def modelos_cobranca(ctx: Ctx, canal: Literal["email", "whatsapp", "ligacao", "reuniao"] | None = None):
+    """Modelos ativos classificados como financeiro ou geral, por nome (mesmo formato de /comercial/modelos)."""
+    consulta = select(ModeloComunicacao).where(
+        ModeloComunicacao.classificacao.in_(CONTEXTOS[CONTEXTO_MODELOS]), ModeloComunicacao.ativo.is_(True))
+    if canal:
+        consulta = consulta.where(ModeloComunicacao.canal == canal)
+    return [_modelo_out(m) for m in ctx.db.scalars(consulta.order_by(ModeloComunicacao.nome, ModeloComunicacao.id))]
+
+
+def _modelo_financeiro(ctx: Ctx, modelo_id: int | None) -> ModeloComunicacao | None:
+    """Modelo do Financeiro (financeiro/geral); comercial ou inexistente = 404."""
+    if modelo_id is None:
+        return None
+    m = ctx.db.get(ModeloComunicacao, modelo_id)
+    if m is None or m.classificacao not in CONTEXTOS[CONTEXTO_MODELOS]:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Modelo não encontrado.")
+    return m
+
+
 @router.get("/cobrancas/{cobranca_id}", response_model=CobrancaOut)
 def detalhe_cobranca(cobranca_id: int, ctx: Ctx):
     return op.cobrancas_para_saida(ctx.db, [_cobranca(ctx, cobranca_id)], hoje())[0]
@@ -566,6 +605,42 @@ def editar_cobranca(cobranca_id: int, dados: CobrancaAtualizar, ctx: Ctx):
     ctx.auditar("cobranca.editar", "cobranca", c.id, descricao=c.assunto, antes=a, depois=dep)
     ctx.db.commit()
     return op.cobrancas_para_saida(ctx.db, [c], hoje())[0]
+
+
+@router.post("/cobrancas/{cobranca_id}/modelos/{modelo_id}/previa", response_model=PreviaModeloOut)
+def previa_modelo_cobranca(cobranca_id: int, modelo_id: int, ctx: Ctx):
+    """Preenche o modelo com os dados da cobrança (empresa, primeiro contato, saldo, vencimento). Não envia nada."""
+    c = _cobranca(ctx, cobranca_id)
+    m = _modelo_financeiro(ctx, modelo_id)
+    t = ctx.db.get(Titulo, c.titulo_id)
+    empresa = ctx.db.get(Empresa, t.empresa_id)
+    contato = ctx.db.scalar(select(Pessoa).where(Pessoa.empresa_id == t.empresa_id).order_by(
+        Pessoa.ativo.desc(), Pessoa.id).limit(1))
+    valores: dict[str, str | None] = {
+        "empresa.nome": empresa.nome if empresa else None, "contato.nome": contato.nome if contato else None,
+        "titulo.valor": formatar_brl(t.saldo), "titulo.vencimento": t.vencimento.strftime("%d/%m/%Y"),
+        "titulo.descricao": t.descricao}
+    assunto, falta_a = regras_modelo.renderizar_modelo(m.assunto, valores) if m.assunto else (None, [])
+    conteudo, falta_c = regras_modelo.renderizar_modelo(m.conteudo, valores)
+    return PreviaModeloOut(assunto=assunto, conteudo=conteudo, faltando=list(dict.fromkeys(falta_a + falta_c)),
+                           aviso="Prévia para revisão. Nada é enviado até você clicar em Enviar.")
+
+
+@router.post("/cobrancas/{cobranca_id}/enviar-email", response_model=EnvioEmailOut)
+def enviar_email_cobranca(cobranca_id: int, dados: EnvioEmailIn, ctx: Ctx):
+    """Envia o e-mail (app.core.envio: opt-out, SMTP, assinatura) e acrescenta a linha ao histórico da cobrança."""
+    c = _cobranca(ctx, cobranca_id)
+    _modelo_financeiro(ctx, dados.modelo_id)
+    m = envio.enviar_por_usuario(ctx.db, ctx.usuario, para=dados.para, cc=dados.cc, assunto=dados.assunto,
+                                 corpo=dados.corpo)
+    linha = dom_envio.linha_historico_cobranca(hoje(), m, ctx.usuario.nome)
+    antes = c.historico
+    c.historico = dom_envio.acrescentar_historico(c.historico, linha)
+    ctx.auditar("cobranca.enviar_email", "cobranca", c.id, descricao=linha, antes={"historico": antes},
+                depois={"historico": c.historico, "para": m.para, "cc": m.cc, "assunto": m.assunto,
+                        "modelo_id": dados.modelo_id})
+    ctx.db.commit()
+    return EnvioEmailOut(enviado_para=m.para + m.cc, registro=f"Histórico da cobrança atualizado: {linha}")
 
 
 # ================================================================ caixa, dashboards e hoje

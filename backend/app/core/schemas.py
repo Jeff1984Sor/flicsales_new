@@ -226,6 +226,55 @@ class ConfigEmailIn(BaseModel):
     copia_padrao: list[EmailStr] = []
 
 
+# ---------- E-mail de envio do usuário (Minha conta; contrato de envio 11/2026) ----------
+class EmailUsuarioOut(BaseModel):
+    configurado: bool
+    ativo: bool = False
+    remetente_nome: str | None = None
+    remetente_email: str | None = None
+    smtp_host: str | None = None
+    smtp_porta: int = 587
+    smtp_usuario: str | None = None
+    senha_final: str | None = None  # "••••abcd"; a senha nunca volta
+
+
+class EmailUsuarioIn(BaseModel):
+    remetente_nome: str = Field(min_length=1, max_length=150)
+    remetente_email: EmailStr
+    smtp_host: str = Field(min_length=1, max_length=200)
+    smtp_porta: int = Field(default=587, ge=1, le=65535)
+    smtp_usuario: str | None = Field(default=None, max_length=200)
+    smtp_senha: str | None = Field(default=None, max_length=500)  # ausente/vazia = mantém a salva
+    ativo: bool = True
+
+
+class TesteEmailOut(BaseModel):
+    ok: bool
+    mensagem: str
+
+
+class EnvioEmailIn(BaseModel):
+    """Corpo comum dos "✉ Enviar e-mail" (comunicações, propostas, cobranças). Validação fina em app.domain.envio."""
+
+    para: list[str] = Field(default_factory=list, max_length=50)
+    cc: list[str] = Field(default_factory=list, max_length=50)
+    assunto: str = Field(default="", max_length=500)
+    corpo: str = Field(default="", max_length=50_000)
+    modelo_id: int | None = None
+
+
+class EnvioEmailOut(BaseModel):
+    ok: bool = True
+    enviado_para: list[str]
+    registro: str
+
+
+class EnvioMeOut(BaseModel):
+    pode_enviar: bool
+    via: str | None  # usuario | organizacao | outbox | None
+    remetente: str | None
+
+
 # ---------- IA ----------
 class ConfigIAOut(BaseModel):
     ativo: bool

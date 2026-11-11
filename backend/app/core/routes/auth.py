@@ -8,14 +8,18 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import or_, select
 
-from app.core import audit, perfis, storage, tenancy
+from app.core import audit, envio, perfis, segredos, storage, tenancy
 from app.core import auth_service as svc
+from app.core import email as mail
 from app.core.db import agora
 from app.core.deps import DB, Ctx, ip_cliente
-from app.core.models import Identidade, PerfilAcesso, Usuario
+from app.core.models import ConfigEmailUsuario, Identidade, PerfilAcesso, Usuario
 from app.core.organizacao_http import definir_pelo_token, endereco_bloqueado
 from app.core.ratelimit import limitar, verificar
 from app.core.schemas import (
+    EmailUsuarioIn,
+    EmailUsuarioOut,
+    EnvioMeOut,
     ForgotIn,
     LoginIn,
     Mensagem,
@@ -26,10 +30,12 @@ from app.core.schemas import (
     RefreshIn,
     ResetCodigoIn,
     ResetIn,
+    TesteEmailOut,
     TokenOut,
     TrocarSenhaIn,
     UsuarioMe,
 )
+from app.domain import RegraViolada
 
 publico = APIRouter(prefix="/auth", tags=["auth"])
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -320,6 +326,86 @@ def assinatura_imagem(ctx: Ctx):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Sem imagem de assinatura. Envie uma em Minha conta.")
     return FileResponse(storage.resolver(ctx.usuario.assinatura_imagem),
                         headers={"Cache-Control": "private, max-age=86400"})
+
+
+# ------------------------------------------------- e-mail de envio do próprio usuário (contrato de envio 11/2026)
+def _email_usuario_out(c: ConfigEmailUsuario | None) -> EmailUsuarioOut:
+    if c is None:
+        return EmailUsuarioOut(configurado=False)
+    senha = segredos.decifrar_texto(c.smtp_senha_cifrada) if c.smtp_senha_cifrada else None
+    return EmailUsuarioOut(configurado=True, ativo=c.ativo, remetente_nome=c.remetente_nome,
+                           remetente_email=c.remetente_email, smtp_host=c.smtp_host, smtp_porta=c.smtp_porta,
+                           smtp_usuario=c.smtp_usuario, senha_final=segredos.mascarar(senha))
+
+
+@router.get("/me/email", response_model=EmailUsuarioOut)
+def ler_email_usuario(ctx: Ctx):
+    """SMTP próprio (opcional). Sem ele, os e-mails do usuário saem pela organização com resposta para ele."""
+    return _email_usuario_out(ctx.db.get(ConfigEmailUsuario, ctx.usuario.id))
+
+
+@router.put("/me/email", response_model=EmailUsuarioOut)
+def salvar_email_usuario(dados: EmailUsuarioIn, ctx: Ctx):
+    c = ctx.db.get(ConfigEmailUsuario, ctx.usuario.id)
+    novo = c is None
+    if novo:
+        c = ConfigEmailUsuario(usuario_id=ctx.usuario.id)
+        ctx.db.add(c)
+    antes = {} if novo else audit.snapshot(c)
+    valores = dados.model_dump()
+    senha = (valores.pop("smtp_senha") or "").strip()
+    valores["remetente_nome"] = valores["remetente_nome"].strip()
+    valores["smtp_host"] = valores["smtp_host"].strip()
+    valores["smtp_usuario"] = (valores["smtp_usuario"] or "").strip() or None
+    for k, v in valores.items():
+        setattr(c, k, v)
+    if senha:
+        c.smtp_senha_cifrada = segredos.cifrar_texto(senha)
+    ctx.db.flush()
+    a, d = audit.diff(antes, audit.snapshot(c))
+    ctx.auditar("email_usuario.alterar", "config_email_usuario", c.usuario_id, antes=a, depois=d,
+                descricao="E-mail de envio próprio" + (" (senha SMTP alterada)" if senha else ""))
+    ctx.db.commit()
+    return _email_usuario_out(c)
+
+
+@router.delete("/me/email", response_model=EmailUsuarioOut)
+def remover_email_usuario(ctx: Ctx):
+    """Volta a usar o e-mail da organização (com resposta para o usuário). A senha guardada é descartada."""
+    c = ctx.db.get(ConfigEmailUsuario, ctx.usuario.id)
+    if c is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Você não tem e-mail de envio próprio.")
+    antes = audit.snapshot(c)
+    ctx.db.delete(c)
+    ctx.auditar("email_usuario.remover", "config_email_usuario", ctx.usuario.id, antes=antes,
+                descricao="E-mail de envio próprio removido: volta a usar o da organização")
+    ctx.db.commit()
+    return _email_usuario_out(None)
+
+
+@router.post("/me/email/testar", response_model=TesteEmailOut)
+def testar_email_usuario(ctx: Ctx, dados: EmailUsuarioIn | None = None):
+    """Conecta e faz login no SMTP (nada é enviado). Sem corpo testa o que está salvo; com corpo testa o formulário
+    antes de salvar (senha vazia = usa a salva)."""
+    c = ctx.db.get(ConfigEmailUsuario, ctx.usuario.id)
+    if dados is None:
+        if c is None:
+            raise RegraViolada("Salve o e-mail de envio antes de testar.")
+        smtp = mail.smtp_de_config_usuario(c)
+    else:
+        senha = (dados.smtp_senha or "").strip() or (
+            segredos.decifrar_texto(c.smtp_senha_cifrada) if c is not None and c.smtp_senha_cifrada else None)
+        smtp = mail.Smtp(dados.smtp_host.strip(), dados.smtp_porta, (dados.smtp_usuario or "").strip() or None, senha,
+                         f"{dados.remetente_nome} <{dados.remetente_email}>", "usuario")
+    ok, mensagem = mail.testar_login(smtp)
+    return TesteEmailOut(ok=ok, mensagem=mensagem)
+
+
+@router.get("/me/envio", response_model=EnvioMeOut)
+def envio_do_usuario(ctx: Ctx):
+    """Como os e-mails do usuário sairiam agora (a tela mostra "Enviar como …" e habilita o botão)."""
+    v = envio.via_de_envio(ctx.db, ctx.usuario)
+    return EnvioMeOut(pode_enviar=v.pode_enviar, via=v.via, remetente=v.remetente)
 
 
 def _usuario(ctx, uid: int) -> Usuario:

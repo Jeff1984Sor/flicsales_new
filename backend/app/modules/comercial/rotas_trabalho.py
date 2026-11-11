@@ -5,10 +5,12 @@ from datetime import date
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, or_, select
 
-from app.core import audit, ia
+from app.core import audit, envio, ia
 from app.core.db import agora
 from app.core.deps import Ctx
+from app.core.schemas import EnvioEmailOut
 from app.domain import RegraViolada
+from app.domain import envio as dom_envio
 from app.domain.atividade import validar_atividade, validar_conclusao
 from app.domain.leitura import AtividadeResumo, OportunidadeResumo, TituloResumo, ler_momento
 from app.domain.titulos import EM_ABERTO
@@ -21,6 +23,7 @@ from app.modules.comercial.schemas import (
     AtividadeCriar,
     AtividadeOut,
     ComunicacaoCriar,
+    ComunicacaoEnvioIn,
     ComunicacaoOut,
     ConcluirIn,
     HojeOut,
@@ -217,6 +220,29 @@ def importar_comunicacao(dados: ComunicacaoCriar, ctx: Ctx):
                 depois={"canal": c.canal, "titulo": c.titulo, "oportunidade_id": c.oportunidade_id})
     ctx.db.commit()
     return _serializar_comunicacoes(ctx, [c])[0]
+
+
+@router.post("/comunicacoes/enviar-email", response_model=EnvioEmailOut)
+def enviar_email_comunicacao(dados: ComunicacaoEnvioIn, ctx: Ctx):
+    """Envia o e-mail (app.core.envio: opt-out, SMTP, assinatura) e registra a Comunicação canal e-mail."""
+    if ctx.somente_meus_registros() and dados.oportunidade_id is None:
+        raise RegraViolada("Vincule o e-mail a uma das suas oportunidades.")
+    empresa_id, op = _vinculos(ctx, dados.empresa_id, dados.oportunidade_id)
+    sv.conferir_modelo_comercial(ctx.db, dados.modelo_id)
+    m = envio.enviar_por_usuario(ctx.db, ctx.usuario, para=dados.para, cc=dados.cc, assunto=dados.assunto,
+                                 corpo=dados.corpo)
+    c = Comunicacao(canal="email", titulo=m.assunto, conteudo=dom_envio.conteudo_comunicacao(m), data=sv.hoje(),
+                    empresa_id=empresa_id, oportunidade_id=dados.oportunidade_id)
+    ctx.db.add(c)
+    ctx.db.flush()
+    if op is not None:
+        sv.registrar_evento(ctx.db, op.id, "nota", f"E-mail enviado para {', '.join(m.para)}: {m.assunto}",
+                            ctx.usuario.id)
+    ctx.auditar("comunicacao.enviar_email", "comunicacao", c.id, descricao=m.assunto,
+                depois={"para": m.para, "cc": m.cc, "assunto": m.assunto, "modelo_id": dados.modelo_id,
+                        "empresa_id": empresa_id, "oportunidade_id": c.oportunidade_id})
+    ctx.db.commit()
+    return EnvioEmailOut(enviado_para=m.para + m.cc, registro=f"Comunicação #{c.id} registrada (e-mail).")
 
 
 @router.put("/comunicacoes/{comunicacao_id}/analise", response_model=ComunicacaoOut)

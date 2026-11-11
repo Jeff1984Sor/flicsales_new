@@ -6,10 +6,12 @@ from decimal import Decimal
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func, or_, select
 
-from app.core import audit
+from app.core import audit, envio
 from app.core.deps import Ctx
 from app.core.models import Usuario
+from app.core.schemas import EnvioEmailOut
 from app.domain import RegraViolada
+from app.domain import envio as dom_envio
 from app.domain.dinheiro import ZERO, formatar_brl
 from app.domain.funil import ItemForecast, alem_do_limite, forecast_ponderado
 from app.domain.indicadores import FORMULAS, apuracao_meta, ciclo_mediano, conversao, ticket_medio
@@ -19,6 +21,7 @@ from app.modules.comercial import regras
 from app.modules.comercial import servico as sv
 from app.modules.comercial.models import (
     Atividade,
+    Comunicacao,
     Etapa,
     Funil,
     IndicadorConfig,
@@ -52,6 +55,7 @@ from app.modules.comercial.schemas import (
     PreviaModeloOut,
     PropostaAtualizar,
     PropostaCriar,
+    PropostaEnvioIn,
     PropostaOut,
     VendedorDesempenho,
 )
@@ -195,6 +199,39 @@ def duplicar_proposta(proposta_id: int, ctx: Ctx):
                 depois=audit.snapshot(nova))
     db.commit()
     return _serializar_propostas(db, [nova])[0]
+
+
+@router.post("/propostas/{proposta_id}/enviar-email", response_model=EnvioEmailOut)
+def enviar_email_proposta(proposta_id: int, dados: PropostaEnvioIn, ctx: Ctx):
+    """Envia a proposta por e-mail (app.core.envio), registra a Comunicação na oportunidade e, se a regra de status
+    permitir (rascunho sem desconto ou aprovada internamente), marca como Enviada."""
+    db = ctx.db
+    p = sv.obter(ctx, Proposta, proposta_id, "Proposta não encontrada.")
+    sv.conferir_modelo_comercial(db, dados.modelo_id)
+    m = envio.enviar_por_usuario(db, ctx.usuario, para=dados.para, cc=dados.cc, assunto=dados.assunto,
+                                 corpo=dados.corpo)
+    antes = audit.snapshot(p)
+    c = Comunicacao(canal="email", titulo=m.assunto, conteudo=dom_envio.conteudo_comunicacao(m), data=sv.hoje(),
+                    empresa_id=p.empresa_id, oportunidade_id=p.oportunidade_id)
+    db.add(c)
+    novo_status = dom_envio.status_proposta_apos_envio(p.status, p.desconto_pct)
+    mudou = novo_status != p.status
+    p.status = novo_status
+    db.flush()
+    sv.registrar_evento(db, p.oportunidade_id, "proposta",
+                        f"Proposta v{p.versao} enviada por e-mail para {', '.join(m.para)}"
+                        + (" (status: Enviada)" if mudou else ""), ctx.usuario.id)
+    partes = [f"Comunicação #{c.id} registrada na oportunidade."]
+    partes.append("Proposta marcada como Enviada." if mudou else
+                  f"Status mantido: {STATUS_ROTULO.get(p.status, p.status)}.")
+    if dados.anexar_pdf:  # ainda não há geração de PDF da proposta: nada é anexado e a tela é avisada
+        partes.append("PDF não anexado: a geração de PDF da proposta ainda não está disponível.")
+    a, d = audit.diff(antes, audit.snapshot(p))
+    ctx.auditar("proposta.enviar_email", "proposta", p.id, descricao=f"{p.titulo} v{p.versao}: {m.assunto}",
+                antes=a, depois={**d, "para": m.para, "cc": m.cc, "assunto": m.assunto, "modelo_id": dados.modelo_id,
+                                 "comunicacao_id": c.id})
+    db.commit()
+    return EnvioEmailOut(enviado_para=m.para + m.cc, registro=" ".join(partes))
 
 
 # ================================================================================================ metas e forecast

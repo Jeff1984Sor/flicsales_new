@@ -3,6 +3,7 @@
 /**
  * FormCobranca — drawer "Novo registro / Editar · Cobranças e acordos" (protótipo `schemas['Cobranças e acordos']`).
  * Ligada a um título A RECEBER confirmado. "Em contestação" suspende a cobrança automática do título.
+ * `onEnviarEmail?`: mostra "✉ Enviar e-mail" na cobrança já salva (quem chama confere a permissão de editar).
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -37,14 +38,21 @@ export function FormCobranca({
   onFechar,
   cobranca,
   tituloId,
+  onEnviarEmail,
 }: {
   aberto: boolean;
   onFechar: () => void;
   cobranca?: Cobranca | null;
   tituloId?: number | null;
+  onEnviarEmail?: (c: Cobranca) => void;
 }) {
   return (
     <Drawer aberto={aberto} onFechar={onFechar} rotulo="COBRANÇAS E ACORDOS" titulo={cobranca ? "Editar cobrança" : "Novo registro · Cobranças e acordos"}>
+      {cobranca && onEnviarEmail && (
+        <Button type="button" variant="outline" className="mb-4" onClick={() => onEnviarEmail(cobranca)}>
+          ✉ Enviar e-mail
+        </Button>
+      )}
       <Corpo key={cobranca?.id ?? "nova"} cobranca={cobranca ?? null} tituloId={tituloId ?? null} onFechar={onFechar} />
     </Drawer>
   );
@@ -148,7 +156,7 @@ function Corpo({ cobranca, tituloId, onFechar }: { cobranca: Cobranca | null; ti
       <Campo rotulo="Histórico / acordo" obrigatorio>
         <TextoLongo value={f.historico} onChange={(e) => set("historico", e.target.value)} required />
       </Campo>
-      <Limite>Registro de acompanhamento. Nenhuma mensagem é enviada daqui; envios dependem de canal conectado e automação ativa.</Limite>
+      <Limite>Registro de acompanhamento. Salvar não envia mensagem; o envio é pelo “Enviar e-mail” e entra no histórico.</Limite>
       <Button type="submit" className="mt-4" disabled={salvar.isPending}>
         Salvar registro
       </Button>

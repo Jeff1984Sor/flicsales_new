@@ -105,6 +105,23 @@ class ConfigEmail(Base, Timestamped):
     copia_padrao: Mapped[list[str]] = mapped_column(JSON, default=list)
 
 
+class ConfigEmailUsuario(Base, Timestamped):
+    """SMTP próprio (opcional) de um usuário (migração 0007). Ativo → os e-mails enviados POR ele saem deste servidor,
+    com `From` dele; sem ele (ou inativo) saem pelo SMTP da organização com `Reply-To` = e-mail do usuário.
+    Senha cifrada (Fernet/MASTER_KEY), nunca devolvida pela API. Ver app.core.email / app.core.envio."""
+
+    __tablename__ = "config_email_usuario"
+
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.id"), primary_key=True)
+    remetente_nome: Mapped[str] = mapped_column(String(150))
+    remetente_email: Mapped[str] = mapped_column(String(200))
+    smtp_host: Mapped[str] = mapped_column(String(200))
+    smtp_porta: Mapped[int] = mapped_column(Integer, default=587, server_default="587")
+    smtp_usuario: Mapped[str | None] = mapped_column(String(200))
+    smtp_senha_cifrada: Mapped[bytes | None] = mapped_column(LargeBinary)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+
+
 class ConfigIA(Base, Timestamped):
     """IA plugável (OpenAI/Gemini). Chave cifrada com a MASTER_KEY. Linha única (id=1). Ver app.core.ia."""
 

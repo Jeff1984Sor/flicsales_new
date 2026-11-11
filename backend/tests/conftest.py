@@ -72,6 +72,50 @@ def emails(monkeypatch):
     return enviados
 
 
+class SmtpFalso:
+    """Servidor SMTP falso (substitui smtplib.SMTP/SMTP_SSL): nada sai da máquina. Guarda logins e mensagens."""
+
+    logins: list[tuple[str, int, str, str]] = []
+    enviados: list[tuple[str, object, list[str]]] = []  # (host, EmailMessage, destinatários)
+    falha: Exception | None = None  # levantada no login (ou no envio, se não houver login)
+
+    def __init__(self, host, porta, timeout=30):
+        self.host, self.porta = host, porta
+
+    def starttls(self):
+        return None
+
+    def login(self, usuario, senha):
+        if SmtpFalso.falha is not None:
+            raise SmtpFalso.falha
+        SmtpFalso.logins.append((self.host, self.porta, usuario, senha))
+
+    def send_message(self, msg, to_addrs=None):
+        if SmtpFalso.falha is not None:
+            raise SmtpFalso.falha
+        SmtpFalso.enviados.append((self.host, msg, list(to_addrs or [])))
+
+    def close(self):
+        return None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+@pytest.fixture
+def smtp_falso(monkeypatch):
+    """Troca o smtplib por `SmtpFalso` (use junto com um SMTP configurado na tela ou no usuário)."""
+    import smtplib
+
+    SmtpFalso.logins, SmtpFalso.enviados, SmtpFalso.falha = [], [], None
+    monkeypatch.setattr(smtplib, "SMTP", SmtpFalso)
+    monkeypatch.setattr(smtplib, "SMTP_SSL", SmtpFalso)
+    return SmtpFalso
+
+
 def criar_usuario(db, perfil: str = "Gestor", *, email="user@exemplo.com", login=None, senha=SENHA,
                   telefone=None, **extra) -> Usuario:
     p = perfis.garantir_padrao(db)[perfil]

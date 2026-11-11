@@ -38,3 +38,13 @@
   `docs/progresso-orquestracao.md`. Filtro de indicador por campo `multipla`: pedido em `docs/progresso-comercial.md`.
   Comunicações/cobranças/propostas ainda não enviam e-mail: quando enviarem, usar `email.enviar(..., remetente=usuario)`.
 
+- 11/11/2026 — Envio de e-mail pelos usuários (backend, contrato `docs/contrato-pendencias-envio.md`, migração
+  `0007_envio_email`): SMTP próprio opcional por usuário (`config_email_usuario`; senão sai pela organização com
+  Reply-To dele), serviço único `app/core/envio.py` (`enviar_por_usuario`), "✉ Enviar e-mail" em Comunicações,
+  Propostas e Cobranças, modelos financeiro+geral em `/financeiro/cobrancas/modelos` + prévia.
+  **Opt-out (§5):** todo envio de e-mail feito por um usuário passa por `app/core/envio.py`, que recusa destinatário com
+  opt-out (`app.domain.envio`). Hoje **não existe envio automático real**: as ações `enviar_email`/`enviar_whatsapp` das
+  automações (`modules/orquestracao/motor.py`) ficam "pendente de conector" e o worker não manda mensagem a contatos.
+  Quando ligarem, devem chamar `app.core.envio.destinatarios_liberados(db, para, origem=...)` (pula quem pediu opt-out
+  e registra no log) antes de enviar. Os únicos `email.enviar` fora do serviço são e-mails do sistema ao próprio
+  usuário (senha, convite, "testar" das Configurações/Integrações).

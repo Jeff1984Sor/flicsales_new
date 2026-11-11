@@ -134,8 +134,9 @@ def test_migracao_0001_num_sqlite_limpo_bate_com_os_modelos(tmp_path):
                        env={**os.environ, "DATABASE_URL": url})
     assert r.returncode == 0, r.stderr[-2000:]
     assert "DIFF []" in r.stdout, r.stdout
-    # 41 (0003: empresa_socio, empresa_anexo; 0006: campo_padrao_config, opcao_lista) + alembic_version
-    assert "TABELAS 42" in r.stdout, r.stdout
+    # 42 (0003: empresa_socio, empresa_anexo; 0006: campo_padrao_config, opcao_lista; 0007: config_email_usuario)
+    # + alembic_version
+    assert "TABELAS 43" in r.stdout, r.stdout
 
 
 def test_unicos_da_especificacao_existem():

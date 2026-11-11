@@ -11,6 +11,7 @@ import { FormCobranca } from "@/components/financeiro/form-cobranca";
 import { BarraFiltros } from "@/components/flic/barra-filtros";
 import { DataTable, type Coluna } from "@/components/flic/data-table";
 import { Dinheiro } from "@/components/flic/dinheiro";
+import { EnviarEmailDrawer } from "@/components/flic/enviar-email";
 import { Etiqueta, type TomEtiqueta } from "@/components/flic/etiqueta";
 import { useAtalhoNovo } from "@/components/flic/eventos";
 import { PageHeader } from "@/components/flic/page-header";
@@ -19,7 +20,7 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { data } from "@/lib/format";
-import type { Cobranca, SituacaoCobranca } from "@/lib/tipos-financeiro";
+import type { Cobranca, SituacaoCobranca, TituloDetalhe } from "@/lib/tipos-financeiro";
 
 type Filtro = "todas" | SituacaoCobranca;
 const TOM: Record<SituacaoCobranca, TomEtiqueta> = {
@@ -37,6 +38,7 @@ export default function FinanceiroCobrancasPage() {
   const [situacao, setSituacao] = useState<Filtro>("todas");
   const [form, setForm] = useState<{ c: Cobranca | null } | null>(null);
   const [titulo, setTitulo] = useState<number | null>(null);
+  const [email, setEmail] = useState<Cobranca | null>(null);
   useAtalhoNovo(() => podeEditar && setForm({ c: null }));
   const lista = useQuery({
     queryKey: [CHAVE, "cobrancas", situacao, busca],
@@ -154,9 +156,30 @@ export default function FinanceiroCobrancasPage() {
         carregando={lista.isPending}
         vazio={{ icone: ClipboardList, titulo: "Nenhum registro.", descricao: "Use “Novo registro” para começar." }}
       />
-      <Limite>“Em contestação” suspende a cobrança automática do título. Nenhuma mensagem é enviada desta tela.</Limite>
-      <FormCobranca aberto={form != null} onFechar={() => setForm(null)} cobranca={form?.c} />
+      <Limite>“Em contestação” suspende a cobrança automática do título. Mensagens só saem pelo “Enviar e-mail” da cobrança, com registro no histórico.</Limite>
+      <FormCobranca aberto={form != null} onFechar={() => setForm(null)} cobranca={form?.c} onEnviarEmail={podeEditar ? setEmail : undefined} />
+      {email && <EnviarEmailCobranca c={email} onFechar={() => setEmail(null)} aoEnviar={() => setForm(null)} />}
       <DetalheTitulo id={titulo} onFechar={() => setTitulo(null)} />
     </>
+  );
+}
+
+/** "✉ Enviar e-mail" da cobrança: a empresa vem do título (sugere as pessoas dela); modelos financeiros e gerais. */
+function EnviarEmailCobranca({ c, onFechar, aoEnviar }: { c: Cobranca; onFechar: () => void; aoEnviar: () => void }) {
+  const titulo = useQuery({
+    queryKey: [CHAVE, "titulo", c.titulo_id],
+    queryFn: () => api.get<TituloDetalhe>(`/financeiro/titulos/${c.titulo_id}`),
+  });
+  return (
+    <EnviarEmailDrawer
+      aberto
+      onFechar={onFechar}
+      destino={{ tipo: "cobranca", id: c.id }}
+      empresaId={titulo.data?.empresa_id}
+      modelos="financeiro"
+      contexto={`${c.empresa_nome} · ${c.titulo_descricao}`}
+      assuntoInicial={c.assunto}
+      aoEnviar={aoEnviar}
+    />
   );
 }

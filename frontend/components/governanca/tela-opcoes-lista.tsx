@@ -2,13 +2,13 @@
 
 /**
  * TelaOpcoesLista — aba da Governança de ajustes para uma lista de opções (Segmentos · Portes · Motivos de perda):
- * busca, chips Ativos/Inativos/Todos, Exportar CSV, reordenar (↑ ↓), drawer para criar/renomear e inativar/reativar.
+ * busca, chips Ativos/Inativos/Todos, Exportar CSV, reordenar (arrastar pela alça ⋮⋮; ↑ ↓ pelo teclado), drawer para criar/renomear e inativar/reativar.
  * Nada se exclui. Editar exige `nucleo.administracao.editar`.
  *
  * Props: `tipo: TipoLista`.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ListTree, Loader2 } from "lucide-react";
+import { ArrowDown, ArrowUp, GripVertical, ListTree, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { rotaAusente } from "@/components/cadastros/consultas";
@@ -25,6 +25,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { data as formatarData } from "@/lib/format";
 import { ROTULO_LISTA, type OpcaoLista, type TipoLista } from "@/lib/tipos-governanca";
+import { cn } from "@/lib/utils";
 
 import { chaveLista } from "./opcoes-lista";
 
@@ -40,6 +41,8 @@ export function TelaOpcoesLista({ tipo }: { tipo: TipoLista }) {
   const [q, setQ] = useState("");
   const [situacao, setSituacao] = useState<Situacao>("ativos");
   const [form, setForm] = useState<{ aberto: boolean; item: OpcaoLista | null }>({ aberto: false, item: null });
+  const [arrastando, setArrastando] = useState<number | null>(null);
+  const [sobre, setSobre] = useState<number | null>(null);
   useAtalhoNovo(() => editar && setForm({ aberto: true, item: null }));
 
   const chave = [...chaveLista(tipo), "todas"] as const;
@@ -90,15 +93,72 @@ export function TelaOpcoesLista({ tipo }: { tipo: TipoLista }) {
     reordenar.mutate(ids);
   }
 
+  /** Arrastar e soltar: o item arrastado passa a ocupar a posição do alvo (os demais deslizam). */
+  function soltar(alvoId: number) {
+    const de = arrastando;
+    setArrastando(null);
+    setSobre(null);
+    if (de == null || de === alvoId) return;
+    const ids = todos.map((o) => o.id);
+    const a = ids.indexOf(de);
+    const b = ids.indexOf(alvoId);
+    if (a < 0 || b < 0) return;
+    ids.splice(b, 0, ...ids.splice(a, 1));
+    reordenar.mutate(ids);
+  }
+
+  // qualquer célula da linha aceita o soltar
+  const alvo = (o: OpcaoLista, node: React.ReactNode) =>
+    podeReordenar ? (
+      <div
+        className={cn(sobre === o.id && arrastando !== o.id && "rounded-sm outline-2 outline-primary/50 outline-dashed")}
+        onDragOver={(e) => {
+          if (arrastando == null) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          if (sobre !== o.id) setSobre(o.id);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          soltar(o.id);
+        }}
+      >
+        {node}
+      </div>
+    ) : (
+      node
+    );
+
   const colunas: Coluna<OpcaoLista>[] = [
     {
       id: "ordem",
       titulo: "Ordem",
-      className: "w-[110px]",
+      className: "w-[140px]",
       celula: (o) => {
         const i = linhas.findIndex((x) => x.id === o.id);
-        return (
+        return alvo(
+          o,
           <div className="flex items-center gap-1">
+            {podeReordenar && (
+              <span
+                draggable={!reordenar.isPending}
+                onClick={(e) => e.stopPropagation()}
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", String(o.id));
+                  setArrastando(o.id);
+                }}
+                onDragEnd={() => {
+                  setArrastando(null);
+                  setSobre(null);
+                }}
+                className={cn("cursor-grab rounded p-1 text-muted hover:text-ink active:cursor-grabbing", arrastando === o.id && "opacity-50")}
+                aria-hidden
+                title="Arrastar para reordenar"
+              >
+                <GripVertical className="size-4" />
+              </span>
+            )}
             <span className="w-6 font-mono text-muted">{todos.findIndex((x) => x.id === o.id) + 1}</span>
             {podeReordenar && (
               <>
@@ -128,17 +188,17 @@ export function TelaOpcoesLista({ tipo }: { tipo: TipoLista }) {
                 </Button>
               </>
             )}
-          </div>
+          </div>,
         );
       },
     },
-    { id: "nome", titulo: "Nome", celula: (o) => <strong>{o.nome}</strong> },
+    { id: "nome", titulo: "Nome", celula: (o) => alvo(o, <strong>{o.nome}</strong>) },
     {
       id: "situacao",
       titulo: "Situação",
-      celula: (o) => <Etiqueta tom={o.ativo ? "green" : "neutra"}>{o.ativo ? "Ativo" : "Inativo"}</Etiqueta>,
+      celula: (o) => alvo(o, <Etiqueta tom={o.ativo ? "green" : "neutra"}>{o.ativo ? "Ativo" : "Inativo"}</Etiqueta>),
     },
-    { id: "criado", titulo: "Criado em", celula: (o) => (o.criado_em ? formatarData(o.criado_em.slice(0, 10)) : "—") },
+    { id: "criado", titulo: "Criado em", celula: (o) => alvo(o, o.criado_em ? formatarData(o.criado_em.slice(0, 10)) : "—") },
   ];
 
   if (consulta.isError) {

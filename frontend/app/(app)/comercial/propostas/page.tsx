@@ -10,6 +10,7 @@ import { BarraFiltros } from "@/components/flic/barra-filtros";
 import { DataTable, type Coluna } from "@/components/flic/data-table";
 import { Dinheiro } from "@/components/flic/dinheiro";
 import { Drawer } from "@/components/flic/drawer";
+import { EnviarEmailDrawer } from "@/components/flic/enviar-email";
 import { Etiqueta, type TomEtiqueta } from "@/components/flic/etiqueta";
 import { useAtalhoNovo } from "@/components/flic/eventos";
 import { PageHeader } from "@/components/flic/page-header";
@@ -32,6 +33,7 @@ export default function PropostasPage() {
   const [status, setStatus] = useState("todos");
   const [form, setForm] = useState<{ aberto: boolean; proposta: Proposta | null }>({ aberto: false, proposta: null });
   const [doc, setDoc] = useState<Proposta | null>(null);
+  const [email, setEmail] = useState<Proposta | null>(null);
   useAtalhoNovo(() => editar && setForm({ aberto: true, proposta: null }));
 
   const { data: lista, isPending } = useQuery({
@@ -115,7 +117,7 @@ export default function PropostasPage() {
         vazio={{ icone: FileText, titulo: "Nenhuma proposta ainda.", descricao: "Use “Novo registro” para começar." }}
       />
       <p className="text-xs text-muted">
-        Registrar “Aceita” não fecha a oportunidade automaticamente. Use o fechamento para revisar o financeiro. Não há assinatura nem envio externo.
+        Registrar “Aceita” não fecha a oportunidade automaticamente. Use o fechamento para revisar o financeiro. Não há assinatura eletrônica.
       </p>
 
       <PropostaForm aberto={form.aberto} proposta={form.proposta} onFechar={() => setForm({ aberto: false, proposta: null })} />
@@ -148,7 +150,7 @@ export default function PropostasPage() {
             <div className="mt-4">
               <Etiqueta tom={tomStatus(doc.status)}>{rotuloStatus(doc.status)}</Etiqueta>
             </div>
-            <p className="mt-4 text-xs text-muted">Envio, assinatura e aceite externo não estão disponíveis.</p>
+            <p className="mt-4 text-xs text-muted">O envio por e-mail fica registrado na oportunidade. Assinatura e aceite externo não estão disponíveis.</p>
             {editar && (
               <div className="mt-5 flex flex-wrap gap-2">
                 <Button
@@ -163,11 +165,26 @@ export default function PropostasPage() {
                 <Button variant="outline" disabled={duplicar.isPending} onClick={() => duplicar.mutate(doc)}>
                   Duplicar (nova versão)
                 </Button>
+                <Button variant="outline" onClick={() => setEmail(doc)}>
+                  ✉ Enviar e-mail
+                </Button>
               </div>
             )}
           </>
         )}
       </Drawer>
+
+      <EnviarEmailDrawer
+        aberto={!!email}
+        onFechar={() => setEmail(null)}
+        destino={{ tipo: "proposta", id: email?.id ?? 0 }}
+        empresaId={email?.empresa_id}
+        oportunidadeId={email?.oportunidade_id}
+        modelos="comercial"
+        contexto={email ? `${email.titulo} · v${email.versao}${email.empresa_nome ? ` · ${email.empresa_nome}` : ""}` : undefined}
+        assuntoInicial={email ? `Proposta: ${email.titulo}` : undefined}
+        aoEnviar={() => setDoc(null)}
+      />
     </>
   );
 }

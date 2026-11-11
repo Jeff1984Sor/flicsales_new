@@ -99,6 +99,57 @@ export interface ConfigEmailOut {
   copia_padrao: string[];
 }
 
+/** GET /auth/me/email — SMTP próprio (opcional) do usuário logado. A senha nunca volta. */
+export interface ConfigEmailUsuarioOut {
+  configurado: boolean;
+  ativo: boolean;
+  remetente_nome: string | null;
+  remetente_email: string | null;
+  smtp_host: string | null;
+  smtp_porta: number | null;
+  smtp_usuario: string | null;
+  /** "••••abcd" quando há senha salva */
+  senha_final: string | null;
+}
+
+/** PUT /auth/me/email — senha ausente/vazia mantém a salva. */
+export interface ConfigEmailUsuarioIn {
+  remetente_nome: string;
+  remetente_email: string;
+  smtp_host: string;
+  smtp_porta: number;
+  smtp_usuario: string | null;
+  smtp_senha?: string;
+  ativo: boolean;
+}
+
+export interface TesteConexao {
+  ok: boolean;
+  mensagem: string;
+}
+
+/** GET /auth/me/envio — habilita o botão Enviar e mostra "Enviar como …". */
+export interface StatusEnvio {
+  pode_enviar: boolean;
+  via: "usuario" | "organizacao" | "outbox" | null;
+  remetente: string | null;
+}
+
+/** Corpo comum dos envios de e-mail pelas telas (comunicações, propostas, cobranças). */
+export interface EnvioEmailIn {
+  para: string[];
+  cc?: string[];
+  assunto: string;
+  corpo: string;
+  modelo_id?: number | null;
+}
+
+export interface EnvioEmailOut {
+  ok: true;
+  enviado_para: string[];
+  registro: string;
+}
+
 export interface ConfigIAOut {
   ativo: boolean;
   provedor: "openai" | "gemini";

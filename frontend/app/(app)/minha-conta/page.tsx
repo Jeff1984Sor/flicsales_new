@@ -1,25 +1,27 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Camera, CircleUserRound, ImageUp, KeyRound, Loader2, PenLine, Trash2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Camera, CircleUserRound, ImageUp, KeyRound, Loader2, Mail, PenLine, PlugZap, Trash2 } from "lucide-react";
 import { useDropzone } from "react-dropzone";
 import { toast } from "sonner";
 import { useState } from "react";
 
 import { Mono } from "@/components/flic/brand";
+import { ConfirmDialog } from "@/components/flic/confirm-dialog";
 import { Field } from "@/components/flic/form";
 import { PageHeader } from "@/components/flic/page-header";
 import { SenhaInput } from "@/components/flic/senha-input";
 import { UserAvatar } from "@/components/flic/user-avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { rotaAusente } from "@/components/cadastros/consultas";
 import { useFoto } from "@/hooks/use-foto";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { AssinaturaUsuario } from "@/lib/tipos-nucleo";
-import type { UsuarioMe } from "@/lib/types";
+import type { ConfigEmailUsuarioIn, ConfigEmailUsuarioOut, TesteConexao, UsuarioMe } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 function TrocarSenha() {
@@ -67,7 +69,189 @@ function TrocarSenha() {
   );
 }
 
-type MeComAssinatura = UsuarioMe & AssinaturaUsuario;
+const CHAVE_EMAIL = ["auth", "me", "email"] as const;
+const MSG_EMAIL_INDISPONIVEL = "E-mail de envio ainda indisponível no servidor. Tente mais tarde.";
+const erroEmail = (e: Error) => toast.error(rotaAusente(e) ? MSG_EMAIL_INDISPONIVEL : e.message);
+
+/** "E-mail de envio" (opcional): SMTP próprio do usuário. Sem ele, os e-mails saem pela organização com resposta para você. */
+function EmailEnvio() {
+  const consulta = useQuery({
+    queryKey: CHAVE_EMAIL,
+    queryFn: () => api.get<ConfigEmailUsuarioOut>("/auth/me/email"),
+    retry: false,
+    meta: { silencioso: true },
+  });
+  return (
+    <div className="card-surface space-y-4 p-5">
+      <div>
+        <h3 className="flex items-center gap-2 font-semibold">
+          <Mail className="size-4 text-info-ink" /> E-mail de envio
+        </h3>
+        <p className="mt-1 text-xs text-muted">Opcional. Sem configurar, seus e-mails saem pelo e-mail da organização com resposta para você.</p>
+      </div>
+      {consulta.isPending ? (
+        <p className="text-sm text-muted">Carregando…</p>
+      ) : consulta.isError ? (
+        <p className="text-sm text-muted">{rotaAusente(consulta.error) ? MSG_EMAIL_INDISPONIVEL : "Não foi possível carregar o e-mail de envio."}</p>
+      ) : (
+        <FormEmailEnvio key={String(consulta.dataUpdatedAt)} cfg={consulta.data} />
+      )}
+    </div>
+  );
+}
+
+function FormEmailEnvio({ cfg }: { cfg: ConfigEmailUsuarioOut }) {
+  const qc = useQueryClient();
+  const { usuario } = useAuth();
+  const [f, setF] = useState({
+    remetente_nome: cfg.remetente_nome ?? usuario?.nome ?? "",
+    remetente_email: cfg.remetente_email ?? usuario?.email ?? "",
+    smtp_host: cfg.smtp_host ?? "",
+    smtp_porta: String(cfg.smtp_porta ?? 587),
+    smtp_usuario: cfg.smtp_usuario ?? "",
+    smtp_senha: "",
+    ativo: cfg.configurado ? cfg.ativo : true,
+  });
+  const [remover, setRemover] = useState(false);
+  const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
+  const atualizar = (novo?: ConfigEmailUsuarioOut) => {
+    if (novo) qc.setQueryData(CHAVE_EMAIL, novo);
+    else qc.invalidateQueries({ queryKey: CHAVE_EMAIL });
+    qc.invalidateQueries({ queryKey: ["auth", "me", "envio"] });
+  };
+
+  const corpo = (): ConfigEmailUsuarioIn => ({
+    remetente_nome: f.remetente_nome.trim(),
+    remetente_email: f.remetente_email.trim(),
+    smtp_host: f.smtp_host.trim(),
+    smtp_porta: Number(f.smtp_porta) || 587,
+    smtp_usuario: f.smtp_usuario.trim() || null,
+    ativo: f.ativo,
+    ...(f.smtp_senha ? { smtp_senha: f.smtp_senha } : {}),
+  });
+  const incompleto = !f.remetente_nome.trim() || !f.remetente_email.trim() || !f.smtp_host.trim();
+  const mudou =
+    f.smtp_senha !== "" ||
+    f.remetente_nome !== (cfg.remetente_nome ?? "") ||
+    f.remetente_email !== (cfg.remetente_email ?? "") ||
+    f.smtp_host !== (cfg.smtp_host ?? "") ||
+    f.smtp_porta !== String(cfg.smtp_porta ?? 587) ||
+    f.smtp_usuario !== (cfg.smtp_usuario ?? "") ||
+    f.ativo !== cfg.ativo;
+
+  const salvar = useMutation({
+    mutationFn: () => api.put<ConfigEmailUsuarioOut>("/auth/me/email", corpo()),
+    meta: { silencioso: true },
+    onSuccess: (novo) => {
+      atualizar(novo);
+      toast.success("E-mail de envio salvo");
+    },
+    onError: erroEmail,
+  });
+  const testar = useMutation({
+    // sem mudanças testa o que está salvo; com mudanças testa o formulário antes de salvar (senha vazia = a salva)
+    mutationFn: () => api.post<TesteConexao>("/auth/me/email/testar", cfg.configurado && !mudou ? undefined : corpo()),
+    meta: { silencioso: true },
+    onSuccess: (r) => (r.ok ? toast.success(r.mensagem) : toast.error(r.mensagem)),
+    onError: erroEmail,
+  });
+  const excluir = useMutation({
+    mutationFn: () => api.del("/auth/me/email"),
+    meta: { silencioso: true },
+    onSuccess: () => {
+      setRemover(false);
+      atualizar({ configurado: false, ativo: false, remetente_nome: null, remetente_email: null, smtp_host: null, smtp_porta: 587, smtp_usuario: null, senha_final: null });
+      toast.success("Removido. Seus e-mails voltam a sair pela organização.");
+    },
+    onError: erroEmail,
+  });
+
+  return (
+    <form
+      className="space-y-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (incompleto) {
+          toast.error("Preencha nome, e-mail do remetente e servidor SMTP.");
+          return;
+        }
+        salvar.mutate();
+      }}
+    >
+      {cfg.configurado && (
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-line p-3">
+          <div>
+            <p className="text-sm font-medium">Usar este e-mail nos meus envios</p>
+            <p className="text-xs text-muted">{f.ativo ? "Ligado: seus e-mails saem por este servidor." : "Desligado: seus e-mails saem pela organização."}</p>
+          </div>
+          <Switch checked={f.ativo} onCheckedChange={(v) => set("ativo", v)} />
+        </div>
+      )}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Nome do remetente" obrigatorio>
+          <Input value={f.remetente_nome} onChange={(e) => set("remetente_nome", e.target.value)} maxLength={150} />
+        </Field>
+        <Field label="E-mail do remetente" obrigatorio>
+          <Input type="email" value={f.remetente_email} onChange={(e) => set("remetente_email", e.target.value)} maxLength={200} />
+        </Field>
+        <Field label="Servidor SMTP" obrigatorio dica="Ex.: smtp.seudominio.com.br">
+          <Input value={f.smtp_host} onChange={(e) => set("smtp_host", e.target.value)} placeholder="smtp.seudominio.com.br" maxLength={200} />
+        </Field>
+        <Field label="Porta" dica="465 = SSL direto; 587 = STARTTLS.">
+          <Input type="number" className="font-mono" value={f.smtp_porta} onChange={(e) => set("smtp_porta", e.target.value)} />
+        </Field>
+        <Field label="Usuário">
+          <Input value={f.smtp_usuario} onChange={(e) => set("smtp_usuario", e.target.value)} autoComplete="off" maxLength={200} />
+        </Field>
+        <Field
+          label="Senha"
+          dica={
+            cfg.senha_final ? (
+              <>
+                Configurado <Mono>{cfg.senha_final}</Mono>. Preencha só para trocar.
+              </>
+            ) : (
+              "Fica cifrada e não é exibida depois de salva."
+            )
+          }
+        >
+          <SenhaInput value={f.smtp_senha} onChange={(v) => set("smtp_senha", v)} autoComplete="new-password" />
+        </Field>
+      </div>
+      <div className="flex flex-wrap justify-end gap-2">
+        {cfg.configurado && (
+          <Button type="button" variant="ghost" className="text-danger-ink" onClick={() => setRemover(true)} disabled={excluir.isPending}>
+            <Trash2 /> Remover
+          </Button>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          disabled={testar.isPending || incompleto}
+          onClick={() => testar.mutate()}
+          title="Faz login no servidor SMTP. Nada é enviado."
+        >
+          {testar.isPending ? <Loader2 className="animate-spin" /> : <PlugZap />} Testar conexão
+        </Button>
+        <Button type="submit" disabled={salvar.isPending || (cfg.configurado && !mudou)}>
+          {salvar.isPending && <Loader2 className="animate-spin" />} Salvar
+        </Button>
+      </div>
+      <ConfirmDialog
+        open={remover}
+        onOpenChange={setRemover}
+        titulo="Remover o e-mail de envio?"
+        descricao="Seus e-mails voltam a sair pelo e-mail da organização, com resposta para você."
+        confirmar="Remover"
+        destrutivo
+        carregando={excluir.isPending}
+        onConfirm={() => excluir.mutate()}
+      />
+    </form>
+  );
+}
+
+type MeComAssinatura =UsuarioMe & AssinaturaUsuario;
 
 const MSG_INDISPONIVEL = "Assinatura de e-mail ainda indisponível no servidor. Tente mais tarde.";
 
@@ -234,7 +418,7 @@ export default function MinhaContaPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader titulo="Minha conta" descricao="Sua foto, seus dados de acesso, sua assinatura de e-mail e sua senha." icone={CircleUserRound} semIA />
+      <PageHeader titulo="Minha conta" descricao="Sua foto, seus dados de acesso, seu e-mail de envio, sua assinatura e sua senha." icone={CircleUserRound} semIA />
       <div className="space-y-5">
         <div className="card-surface relative overflow-hidden">
           <div className="bg-primary h-24" />
@@ -286,6 +470,8 @@ export default function MinhaContaPage() {
         </div>
 
         <AssinaturaEmail usuario={usuario} onAtualizado={atualizar} />
+
+        <EmailEnvio />
 
         <TrocarSenha />
       </div>
