@@ -269,10 +269,31 @@ class EnvioEmailOut(BaseModel):
     registro: str
 
 
+class EnvioWhatsAppIn(BaseModel):
+    """Corpo comum dos "WhatsApp" (comunicações, propostas, cobranças). Validação fina em app.domain.envio
+    (telefones com DDI 55, máx. 10; texto até 4000)."""
+
+    para: list[str] = Field(default_factory=list, max_length=50)
+    texto: str = Field(default="", max_length=10_000)
+    modelo_id: int | None = None
+
+
+class EnvioWhatsAppOut(BaseModel):
+    ok: bool = True
+    enviado_para: list[str]  # só dígitos com DDI (5511999990000)
+    registro: str
+
+
+class WhatsAppMeOut(BaseModel):
+    pode_enviar: bool = False
+    numero: str | None = None  # número conectado (dígitos com DDI)
+
+
 class EnvioMeOut(BaseModel):
     pode_enviar: bool
     via: str | None  # usuario | organizacao | outbox | None
     remetente: str | None
+    whatsapp: WhatsAppMeOut = Field(default_factory=WhatsAppMeOut)
 
 
 # ---------- IA ----------

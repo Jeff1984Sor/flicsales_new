@@ -28,11 +28,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { data, dataHora } from "@/lib/format";
-import type { Evento, Oportunidade, OportunidadeDetalhe } from "@/lib/tipos-comercial";
+import type { Evento, Oportunidade, OportunidadeDetalhe, Proposta } from "@/lib/tipos-comercial";
 
 import { CHAVE, useInvalidarComercial, useOpcoes } from "./dados";
 import { GanhoDrawer, PerdaDrawer } from "./ganho-perda";
+import { GerarPropostaDrawer } from "./gerar-proposta";
 import { OportunidadeForm } from "./oportunidade-form";
+import { PropostaDrawer } from "./proposta-drawer";
 
 const ROTULO_EVENTO: Record<Evento["tipo"], string> = {
   criada: "Criada",
@@ -49,12 +51,15 @@ const ROTULO_EVENTO: Record<Evento["tipo"], string> = {
 export function OportunidadeDrawer({ id, onFechar }: { id: number | null; onFechar: () => void }) {
   const { pode } = useAuth();
   const editar = pode("comercial.oportunidades.editar");
+  const editarPropostas = pode("comercial.propostas.editar");
   const invalidar = useInvalidarComercial();
   const { data: opcoes } = useOpcoes();
   const [ganho, setGanho] = useState(false);
   const [perda, setPerda] = useState(false);
   const [edicao, setEdicao] = useState(false);
   const [nota, setNota] = useState("");
+  const [gerarProposta, setGerarProposta] = useState(false);
+  const [proposta, setProposta] = useState<Proposta | null>(null);
 
   const { data: o, isPending } = useQuery({
     queryKey: [CHAVE, "oportunidade", id],
@@ -145,6 +150,11 @@ export function OportunidadeDrawer({ id, onFechar }: { id: number | null; onFech
               <Button variant="outline" onClick={() => abrirAssistente("Este registro", { tipo: "oportunidade", id: o.id, rotulo: `${o.empresa_nome ?? ""} · ${o.titulo}` })}>
                 ✧ Analisar registro
               </Button>
+              {o.resultado === "aberta" && editarPropostas && (
+                <Button variant="outline" onClick={() => setGerarProposta(true)}>
+                  <span className="text-accent">✧</span> Gerar proposta
+                </Button>
+              )}
               {o.resultado === "aberta" && editar && <Button onClick={() => setGanho(true)}>Marcar como ganha</Button>}
               {o.resultado === "ganha" && <Etiqueta tom="green">Venda ganha • revisar financeiro</Etiqueta>}
               {o.resultado === "perdida" && (
@@ -264,6 +274,8 @@ export function OportunidadeDrawer({ id, onFechar }: { id: number | null; onFech
       <GanhoDrawer oportunidade={o ?? null} aberto={ganho} onFechar={() => setGanho(false)} />
       <PerdaDrawer oportunidade={o ?? null} aberto={perda} onFechar={() => setPerda(false)} />
       <OportunidadeForm aberto={edicao} onFechar={() => setEdicao(false)} oportunidade={o ?? null} />
+      <GerarPropostaDrawer aberto={gerarProposta} onFechar={() => setGerarProposta(false)} oportunidadeId={o?.id ?? null} aoCriar={setProposta} />
+      <PropostaDrawer proposta={proposta} onTrocar={setProposta} />
     </>
   );
 }

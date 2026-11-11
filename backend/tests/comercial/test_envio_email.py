@@ -121,7 +121,7 @@ def test_enviar_proposta_marca_enviada_e_registra(client, demo, marina, emails):
     r = client.post(f"{API}/propostas/{p['id']}/enviar-email", headers=marina, json=EMAIL)
     assert r.status_code == 200, r.text
     reg = r.json()["registro"]
-    assert "Proposta marcada como Enviada." in reg and "PDF não anexado" in reg
+    assert "Proposta marcada como Enviada." in reg and f"PDF anexado: proposta-{p['id']}-v1.pdf." in reg
     demo.expire_all()
     assert demo.get(Proposta, p["id"]).status == "enviada"
     c = demo.scalar(select(Comunicacao).where(Comunicacao.titulo == "Próximos passos"))

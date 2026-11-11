@@ -279,7 +279,57 @@ export interface Proposta {
   justificativa_desconto: string | null;
   total: Decimal;
   criado_em: string;
+  /** modelo de proposta usado (ausente em backend antigo) */
+  modelo_proposta_id?: number | null;
+  /** só na proposta automática: ex. "IA desligada: escopo montado pelo cadastro do produto." */
+  aviso?: string | null;
 }
+
+/** POST /comercial/oportunidades/{id}/proposta-automatica */
+export interface PropostaAutomaticaIn {
+  modelo_proposta_id: number | null;
+  produto_id: number | null;
+  usar_ia: boolean;
+}
+
+/** Gestão comercial › Modelos de proposta (GET /comercial/modelos-proposta). */
+export interface ModeloProposta {
+  id: number;
+  nome: string;
+  padrao: boolean;
+  introducao: string | null;
+  termos: string | null;
+  rodape: string | null;
+  validade_dias: number;
+  condicao_padrao: string | null;
+  ativo: boolean;
+  variaveis: string[];
+}
+
+export interface ModeloPropostaIn {
+  nome?: string;
+  padrao?: boolean;
+  introducao?: string | null;
+  termos?: string | null;
+  rodape?: string | null;
+  validade_dias?: number;
+  condicao_padrao?: string | null;
+  ativo?: boolean;
+}
+
+/** Variáveis aceitas nos textos do modelo de proposta (clicáveis no formulário). */
+export const VARIAVEIS_PROPOSTA: { chave: string; rotulo: string }[] = [
+  { chave: "empresa.nome", rotulo: "Empresa" },
+  { chave: "empresa.cnpj", rotulo: "CNPJ" },
+  { chave: "contato.nome", rotulo: "Contato" },
+  { chave: "oportunidade.titulo", rotulo: "Oportunidade" },
+  { chave: "proposta.titulo", rotulo: "Título da proposta" },
+  { chave: "proposta.total", rotulo: "Total" },
+  { chave: "proposta.validade", rotulo: "Validade" },
+  { chave: "proposta.condicao", rotulo: "Condição" },
+  { chave: "responsavel.nome", rotulo: "Responsável" },
+  { chave: "hoje", rotulo: "Data de hoje" },
+];
 
 // ---------------------------------------------------------------------------------------------- metas e forecast
 export type IndicadorMeta = "receita_unica_ganha" | "mrr_novo" | "vendas_ganhas" | "atividades_concluidas";

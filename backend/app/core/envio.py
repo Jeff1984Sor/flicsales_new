@@ -1,9 +1,13 @@
-"""Serviço único de envio de e-mail POR um usuário (comunicação, proposta, cobrança). Contrato de envio 11/2026.
+"""Serviço único de envio de e-mail (e WhatsApp) POR um usuário (comunicação, proposta, cobrança). Contrato de envio
+11/2026 e contrato proposta + WhatsApp 11/2026 (parte B).
 
 Todo e-mail que um usuário manda pelo sistema passa por `enviar_por_usuario`: valida a mensagem, recusa destinatário
 com opt-out (app.domain.envio), escolhe o servidor (SMTP próprio do usuário → organização → outbox em dev) e acrescenta a
 assinatura. Envio automático (automação, worker) deve usar `destinatarios_liberados`, que PULA quem pediu opt-out e
 registra no log. Erros saem como `RegraViolada` (HTTP 400) em PT-BR, sem senha nem resposta crua do servidor.
+
+WhatsApp: `enviar_whatsapp_por_usuario` (telefones normalizados com DDI 55, opt-out por telefone, assinatura curta
+"— <nome>", Evolution API conectada em Núcleo › Integrações). Envio automático: `telefones_liberados`.
 """
 
 import logging
@@ -52,8 +56,9 @@ def contatos_com_opt_out(db: Session) -> list[dom.Contato]:
     contatos = []
     for p in pessoas:
         emails = {p.email or ""} | {str(e.get("email") or "") for e in (p.emails or []) if isinstance(e, dict)}
+        fones = {p.telefone or ""} | {str(t.get("numero") or "") for t in (p.telefones or []) if isinstance(t, dict)}
         contatos.append(dom.Contato(p.nome, tuple(sorted(e for e in emails if e)),
-                                    tuple(p.permissoes_comunicacao or [])))
+                                    tuple(p.permissoes_comunicacao or []), tuple(sorted(f for f in fones if f))))
     return contatos
 
 
@@ -78,3 +83,51 @@ def enviar_por_usuario(db: Session, usuario: Usuario, *, para: list[str], cc: li
     if not ok:
         raise RegraViolada(f"Não foi possível enviar o e-mail: {erros[0] if erros else 'tente novamente.'}")
     return m
+
+
+# ================================================================================================ WhatsApp (11/2026)
+@dataclass(frozen=True)
+class ViaWhatsApp:
+    pode_enviar: bool
+    numero: str | None  # número conectado na Evolution (dígitos com DDI), se conhecido
+
+
+def via_whatsapp(db: Session) -> ViaWhatsApp:
+    """Há WhatsApp conectado para enviar agora? (Evolution configurada e com o último teste "conectado".)"""
+    from app.modules.orquestracao import evolution  # import tardio: core não depende dos módulos na carga
+
+    cfg = evolution.conectada(db)
+    i = evolution.integracao(db) if cfg else None
+    return ViaWhatsApp(cfg is not None, (i.conta if i else None) or None)
+
+
+def telefones_liberados(db: Session, telefones: list[str], *, origem: str = "automação") -> list[str]:
+    """Para envio AUTOMÁTICO por WhatsApp: telefones normalizados de quem pode receber; opt-out é pulado (log)."""
+    liberados, pulados = dom.filtrar_opt_out_telefones(telefones, contatos_com_opt_out(db))
+    for _fone, nome in pulados:
+        log.info("Envio automático (%s) pulou %s: opt-out.", origem, nome)
+    return liberados
+
+
+def enviar_whatsapp_por_usuario(db: Session, usuario: Usuario, *, para: list[str], texto: str,
+                                documento: tuple[str, bytes, str] | None = None) -> dom.MensagemWhatsApp:
+    """Envia em nome de `usuario` pela Evolution. `documento` = (nome do arquivo, bytes, mime) vai como anexo com o
+    texto de legenda. Devolve a mensagem normalizada (telefones só dígitos com DDI; texto já com a assinatura)."""
+    from app.modules.orquestracao import evolution  # import tardio: core não depende dos módulos na carga
+
+    m = dom.validar_mensagem_whatsapp(para=para, texto=texto)
+    dom.conferir_opt_out_telefones(m.para, contatos_com_opt_out(db))
+    cfg = evolution.conectada(db)
+    if cfg is None:
+        raise RegraViolada(evolution.SEM_WHATSAPP)
+    assinado = dom.assinar_whatsapp(m.texto, usuario.nome)
+    enviados: list[str] = []
+    for numero in m.para:
+        try:
+            evolution.enviar(cfg, numero, assinado, documento)
+        except evolution.ErroEvolution as e:
+            parcial = (f" Já enviado para {', '.join(dom.formatar_whatsapp(n) for n in enviados)}; "
+                       "envie de novo só para os demais.") if enviados else ""
+            raise RegraViolada(f"Não foi possível enviar pelo WhatsApp: {e.mensagem}.{parcial}") from None
+        enviados.append(numero)
+    return dom.MensagemWhatsApp(para=m.para, texto=assinado)

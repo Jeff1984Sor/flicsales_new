@@ -156,6 +156,50 @@ export interface IntegracaoIn {
   segredo?: string | null;
 }
 
+/** Integrações › WhatsApp pela Evolution API (GET /orquestracao/integracoes/whatsapp/evolution). */
+export type EstadoEvolution = "conectado" | "desconectado" | "erro";
+
+export interface ConfigEvolution {
+  configurado: boolean;
+  provedor: string | null;
+  url: string | null;
+  instancia: string | null;
+  /** últimos caracteres da API key (somente escrita) */
+  chave_final: string | null;
+  estado: EstadoEvolution | null;
+  numero?: string | null;
+  testado_em: string | null;
+  ultimo_erro: string | null;
+}
+
+/** PUT …/whatsapp/evolution — apikey vazia/ausente = manter a salva. */
+export interface ConfigEvolutionIn {
+  url: string;
+  apikey?: string;
+  instancia?: string | null;
+}
+
+export interface InstanciaEvolution {
+  nome: string;
+  /** conectado | conectando | desconectado */
+  estado: string | null;
+  numero: string | null;
+}
+
+export interface TesteEvolution {
+  ok: boolean;
+  estado: EstadoEvolution;
+  mensagem: string;
+}
+
+export interface QrCodeEvolution {
+  /** "data:image/png;base64,…" (ou só o base64) */
+  base64?: string | null;
+  codigo_pareamento?: string | null;
+  estado?: "conectando" | "conectado" | null;
+  mensagem?: string | null;
+}
+
 export interface ResultadoIntegracao {
   mensagem: string;
   integracao: Integracao;

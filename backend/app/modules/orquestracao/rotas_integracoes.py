@@ -6,8 +6,19 @@ from fastapi import APIRouter, HTTPException
 from app.core import audit, segredos
 from app.core.deps import Ctx
 from app.core.models import Usuario
+from app.domain import RegraViolada
+from app.modules.orquestracao import evolution as evo
 from app.modules.orquestracao import integracoes as integ
-from app.modules.orquestracao.schemas import IntegracaoIn, IntegracaoOut
+from app.modules.orquestracao.schemas import (
+    EvolutionBuscarIn,
+    EvolutionIn,
+    EvolutionOut,
+    InstanciaEvolutionOut,
+    IntegracaoIn,
+    IntegracaoOut,
+    QrCodeOut,
+    TesteWhatsAppOut,
+)
 
 router = APIRouter(prefix="/integracoes")
 
@@ -18,6 +29,89 @@ def _tipo(tipo: str) -> str:
     return tipo
 
 
+# ------------------------------------------------------------------------------- WhatsApp pela Evolution API (0008)
+@router.get("/whatsapp/evolution", response_model=EvolutionOut)
+def ler_evolution(ctx: Ctx):
+    return evo.saida(evo.integracao(ctx.db))
+
+
+@router.put("/whatsapp/evolution", response_model=EvolutionOut)
+def salvar_evolution(dados: EvolutionIn, ctx: Ctx):
+    """URL (http/https, sem barra final), apikey somente escrita (vazia = mantém) e instância. Mudou algo → precisa
+    testar de novo (fica desconectado). A auditoria nunca leva a chave."""
+    d = dados.model_dump(exclude_unset=True)
+    url = evo.validar_url(d["url"])
+    i = integ.obter_ou_criar(ctx.db, "whatsapp")
+    antes = audit.snapshot(i)
+    novos = {"provedor": evo.PROVEDOR, "url": url}
+    if "instancia" in d:
+        novos["instancia"] = evo.validar_instancia(d["instancia"])
+    mudou = False
+    for k, v in novos.items():
+        if getattr(i, k) != v:
+            setattr(i, k, v)
+            mudou = True
+    apikey = (d.get("apikey") or "").strip()
+    if apikey:
+        if len(apikey) < 8:
+            raise RegraViolada("A API key parece incompleta (mínimo de 8 caracteres). Copie de novo do servidor.")
+        if apikey != evo.apikey_salva(i):
+            i.segredo_cifrado = segredos.cifrar_texto(apikey)
+            mudou = True
+    if mudou:
+        i.estado, i.aguardando_conector, i.conectado_em = "desconectado", False, None
+    ctx.db.flush()
+    x, y = audit.diff(antes, audit.snapshot(i))
+    ctx.auditar("integracao.configurar", "integracao", i.id,
+                descricao="WhatsApp (Evolution)" + (" · API key alterada" if apikey else ""), antes=x, depois=y)
+    ctx.db.commit()
+    return evo.saida(i)
+
+
+@router.post("/whatsapp/evolution/instancias", response_model=list[InstanciaEvolutionOut])
+def instancias_evolution(ctx: Ctx, dados: EvolutionBuscarIn | None = None):
+    """Lista as instâncias do servidor (para escolher na tela). Usa a URL/apikey do formulário ou as salvas."""
+    d = dados or EvolutionBuscarIn()
+    cfg = evo.config_de(evo.integracao(ctx.db), url=d.url, apikey=d.apikey)
+    try:
+        return evo.cliente(cfg).instancias()
+    except evo.ErroEvolution as e:
+        raise RegraViolada(f"Não foi possível buscar as instâncias: {e.mensagem}.") from None
+
+
+@router.post("/whatsapp/evolution/testar", response_model=TesteWhatsAppOut)
+def testar_evolution(ctx: Ctx):
+    i = integ.obter_ou_criar(ctx.db, "whatsapp")
+    antes = audit.snapshot(i)
+    r = evo.testar(i)
+    ctx.db.flush()
+    x, y = audit.diff(antes, audit.snapshot(i))
+    for k in ("testado_em", "atualizado_em"):  # a tela consulta a cada 5 s com o QR aberto: só audita mudança real
+        x.pop(k, None)
+        y.pop(k, None)
+    if x or y:
+        ctx.auditar("integracao.testar", "integracao", i.id, descricao=r["mensagem"], antes=x, depois=y)
+    ctx.db.commit()
+    return r
+
+
+@router.post("/whatsapp/evolution/qrcode", response_model=QrCodeOut)
+def qrcode_evolution(ctx: Ctx):
+    """QR code para conectar o número (cria a instância na Evolution se ela ainda não existir)."""
+    i = evo.integracao(ctx.db)
+    if i is None:
+        raise RegraViolada("Salve a URL e a API key da Evolution antes de conectar o número.")
+    try:
+        r = evo.qrcode(i)
+    except RegraViolada:
+        ctx.db.commit()  # guarda o último erro (sem a chave)
+        raise
+    ctx.auditar("integracao.qrcode", "integracao", i.id, descricao=f"QR code solicitado para a instância {i.instancia}")
+    ctx.db.commit()
+    return r
+
+
+# ------------------------------------------------------------------------------- genéricas
 @router.get("", response_model=list[IntegracaoOut])
 def listar(ctx: Ctx):
     return [integ.saida(ctx.db, t, integ.obter(ctx.db, t)) for t in integ.CATALOGO]

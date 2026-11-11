@@ -11,6 +11,7 @@
 | /orquestracao/automacoes*                                | orquestracao.automacoes.ver/editar (+ acesso à área) |
 | GET  /orquestracao/automacoes/avisos                     | livre (só os avisos do próprio usuário) |
 | /orquestracao/integracoes*                               | orquestracao.integracoes.ver/editar |
+| /orquestracao/integracoes/whatsapp/evolution[/instancias|testar|qrcode] | orquestracao.integracoes.ver/editar |
 | GET  /orquestracao/consumo                               | nucleo.administracao.ver (Plano e consumo) |
 """
 
@@ -25,8 +26,9 @@ from app.core.config import settings
 from app.core.db import hoje
 from app.core.deps import Ctx
 from app.core.models import Usuario
+from app.core.notificador import definir_notificador
 from app.core.permissoes import adicionar_regras
-from app.modules.orquestracao import rotas_automacoes, rotas_ia, rotas_integracoes
+from app.modules.orquestracao import evolution, rotas_automacoes, rotas_ia, rotas_integracoes
 from app.modules.orquestracao.models import Automacao, AutomacaoExecucao, IaMensagem
 
 adicionar_regras([
@@ -36,6 +38,9 @@ adicionar_regras([
     ("GET", r"/orquestracao/automacoes/avisos$", None),
     ("GET", r"/orquestracao/consumo$", "nucleo.administracao.ver"),
 ])
+
+# código de recuperação de senha por WhatsApp sai pela Evolution da organização (Núcleo › Integrações › WhatsApp)
+definir_notificador(evolution.NotificadorEvolution())
 
 router = APIRouter(prefix="/orquestracao", tags=["orquestracao"])
 router.include_router(rotas_ia.router)

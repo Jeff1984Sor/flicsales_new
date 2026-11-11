@@ -178,6 +178,25 @@ class Proposta(Base, Timestamped):
     status: Mapped[str] = mapped_column(String(25), default="rascunho", server_default="rascunho")
     justificativa_desconto: Mapped[str | None] = mapped_column(Text)
     total: Mapped[Decimal] = mapped_column(Dinheiro)
+    # 0008: modelo usado para gerar o documento/PDF (null = o modelo padrão)
+    modelo_proposta_id: Mapped[int | None] = mapped_column(ForeignKey("modelo_proposta.id"))
+
+
+class ModeloProposta(Base, Timestamped):
+    """Modelo do documento da proposta (0008): textos com variáveis ({{empresa.nome}}, {{contato.nome}},
+    {{oportunidade.titulo}}, {{proposta.total}}, {{proposta.validade}}…), validade e condição padrão. Um é o padrão."""
+
+    __tablename__ = "modelo_proposta"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nome: Mapped[str] = mapped_column(String(150))
+    padrao: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    introducao: Mapped[str | None] = mapped_column(Text)
+    termos: Mapped[str | None] = mapped_column(Text)
+    rodape: Mapped[str | None] = mapped_column(Text)
+    validade_dias: Mapped[int] = mapped_column(Integer, default=15, server_default="15")
+    condicao_padrao: Mapped[str | None] = mapped_column(String(40))
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
 
 
 class Meta(Base, Timestamped):

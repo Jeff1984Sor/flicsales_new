@@ -1,8 +1,9 @@
 """Integrações (Google Calendar, Microsoft Outlook, E-mail, WhatsApp): estado, requisitos, segredo cifrado somente
 escrita, "Testar conexão", revogar e último erro.
 
-Nesta fase NENHUMA chamada externa real é feita para Google/Outlook/WhatsApp: o teste valida o formato da conta e do
-segredo e marca "aguardando conector oficial". O E-mail usa o SMTP configurado no core (Configurações › E-mail).
+Google/Outlook (e WhatsApp sem provedor) não fazem chamada externa: o teste valida o formato da conta e do segredo e
+marca "aguardando conector oficial". O WhatsApp com `provedor="evolution"` é conector real (app/modules/orquestracao/
+evolution.py). O E-mail usa o SMTP configurado no core (Configurações › E-mail).
 """
 
 import re
@@ -52,10 +53,12 @@ CATALOGO: dict[str, dict[str, Any]] = {
     },
     "whatsapp": {
         "nome": "WhatsApp", "grupo": "COMUNICAÇÃO",
-        "descricao": "Requer conector oficial autorizado.",
+        "descricao": "API do WhatsApp no seu servidor (Evolution)",
         "escopos": ["Enviar mensagens com modelo aprovado", "Receber respostas"],
-        "segredo_rotulo": "Token da API oficial (WhatsApp Business)", "conta": "telefone",
-        "requisitos": ["Número verificado no WhatsApp Business (API oficial) e modelos de mensagem aprovados."],
+        "segredo_rotulo": "API key da Evolution", "conta": "telefone",
+        "requisitos": ["Servidor com a Evolution API v2 acessível pela FlicSales (URL e API key).",
+                       "Instância conectada ao número da organização (QR code lido no celular).",
+                       "Envio só para quem não pediu opt-out; o código de recuperação de senha também sai por aqui."],
     },
 }
 
@@ -157,6 +160,10 @@ def testar(db: Session, i: Integracao, email_usuario: str) -> str:
         if not i.escopos:
             i.escopos = ["Envio (SMTP)"]
         return f"E-mail de teste enviado para {email_usuario}. Envio conectado."
+    if i.tipo == "whatsapp" and i.provedor == "evolution":  # conector real: consulta a instância na Evolution
+        from app.modules.orquestracao import evolution
+
+        return evolution.testar(i)["mensagem"]
     problema = _problema_formato(i.tipo, i)
     if problema:
         i.estado, i.ultimo_erro, i.aguardando_conector = "erro", problema, False

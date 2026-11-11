@@ -133,6 +133,13 @@ export interface StatusEnvio {
   pode_enviar: boolean;
   via: "usuario" | "organizacao" | "outbox" | null;
   remetente: string | null;
+  /** WhatsApp pela Evolution API da organização (ausente em backend antigo = sem WhatsApp). */
+  whatsapp?: StatusWhatsApp | null;
+}
+
+export interface StatusWhatsApp {
+  pode_enviar: boolean;
+  numero?: string | null;
 }
 
 /** Corpo comum dos envios de e-mail pelas telas (comunicações, propostas, cobranças). */
@@ -146,6 +153,19 @@ export interface EnvioEmailIn {
 
 export interface EnvioEmailOut {
   ok: true;
+  enviado_para: string[];
+  registro: string;
+}
+
+/** Corpo comum dos envios por WhatsApp (comunicações, propostas, cobranças). Telefones em dígitos com DDI. */
+export interface EnvioWhatsAppIn {
+  para: string[];
+  texto: string;
+  modelo_id?: number | null;
+}
+
+export interface EnvioWhatsAppOut {
+  ok: boolean;
   enviado_para: string[];
   registro: string;
 }

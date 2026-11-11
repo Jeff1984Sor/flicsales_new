@@ -4,6 +4,7 @@
  * Núcleo › Integrações (protótipo `integrations` + `integrationDetail`): cards Google Calendar, Microsoft Outlook,
  * E-mail e WhatsApp com estado, requisitos, segredo somente escrita ("configurado · termina em XXXX"), Testar conexão,
  * Revogar e último erro. Configurar exige `orquestracao.integracoes.editar`.
+ * WhatsApp abre o formulário da Evolution API (`whatsapp-evolution.tsx`): URL, API key, instância e QR code.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
@@ -26,6 +27,8 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { dataHora } from "@/lib/format";
 import type { Integracao, IntegracaoIn, ResultadoIntegracao, SituacaoIntegracao, UsuarioOpcao } from "@/lib/tipos-orquestracao";
+
+import { DetalheWhatsApp } from "./whatsapp-evolution";
 
 const TOM: Record<SituacaoIntegracao, TomEtiqueta> = {
   conectado: "green",
@@ -65,9 +68,12 @@ export function IntegracoesTela() {
       </div>
       <Fonte
         className="mt-6"
-        limite="Nesta fase nenhuma conta pessoal é acessada e nada é capturado ou enviado por Google, Outlook ou WhatsApp: o teste confere o formato e a conexão fica aguardando o conector oficial. O e-mail usa o servidor SMTP de Configurações › E-mail."
+        limite="Nenhuma conta pessoal é acessada e nada é capturado por Google ou Outlook: o teste confere o formato e a conexão fica aguardando o conector oficial. O WhatsApp sai pela Evolution API da organização, só quando alguém clica em enviar. O e-mail usa o servidor SMTP de Configurações › E-mail."
       />
-      {aberta && (
+      {aberta?.tipo === "whatsapp" && (
+        <DetalheWhatsApp integracao={lista.data?.find((x) => x.tipo === "whatsapp") ?? aberta} onFechar={() => setAberta(null)} />
+      )}
+      {aberta && aberta.tipo !== "whatsapp" && (
         <DetalheIntegracao
           key={aberta.tipo}
           inicial={lista.data?.find((x) => x.tipo === aberta.tipo) ?? aberta}

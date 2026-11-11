@@ -4,6 +4,7 @@
  * FormCobranca — drawer "Novo registro / Editar · Cobranças e acordos" (protótipo `schemas['Cobranças e acordos']`).
  * Ligada a um título A RECEBER confirmado. "Em contestação" suspende a cobrança automática do título.
  * `onEnviarEmail?`: mostra "✉ Enviar e-mail" na cobrança já salva (quem chama confere a permissão de editar).
+ * `onEnviarWhatsApp?`: mostra "WhatsApp" (quem chama confere a permissão e o WhatsApp conectado).
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -39,19 +40,30 @@ export function FormCobranca({
   cobranca,
   tituloId,
   onEnviarEmail,
+  onEnviarWhatsApp,
 }: {
   aberto: boolean;
   onFechar: () => void;
   cobranca?: Cobranca | null;
   tituloId?: number | null;
   onEnviarEmail?: (c: Cobranca) => void;
+  onEnviarWhatsApp?: (c: Cobranca) => void;
 }) {
   return (
     <Drawer aberto={aberto} onFechar={onFechar} rotulo="COBRANÇAS E ACORDOS" titulo={cobranca ? "Editar cobrança" : "Novo registro · Cobranças e acordos"}>
-      {cobranca && onEnviarEmail && (
-        <Button type="button" variant="outline" className="mb-4" onClick={() => onEnviarEmail(cobranca)}>
-          ✉ Enviar e-mail
-        </Button>
+      {cobranca && (onEnviarEmail || onEnviarWhatsApp) && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {onEnviarEmail && (
+            <Button type="button" variant="outline" onClick={() => onEnviarEmail(cobranca)}>
+              ✉ Enviar e-mail
+            </Button>
+          )}
+          {onEnviarWhatsApp && (
+            <Button type="button" variant="outline" onClick={() => onEnviarWhatsApp(cobranca)}>
+              WhatsApp
+            </Button>
+          )}
+        </div>
       )}
       <Corpo key={cobranca?.id ?? "nova"} cobranca={cobranca ?? null} tituloId={tituloId ?? null} onFechar={onFechar} />
     </Drawer>

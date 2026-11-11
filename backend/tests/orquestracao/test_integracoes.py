@@ -15,7 +15,7 @@ def test_lista_os_quatro_cards_com_requisitos(client, comercial):
     cards = r.json()
     assert [c["nome"] for c in cards] == ["Google Calendar", "Microsoft Outlook", "E-mail", "WhatsApp"]
     assert all(c["situacao"] == "desconectado" and c["requisitos"] for c in cards)
-    assert cards[3]["descricao"] == "Requer conector oficial autorizado."
+    assert cards[3]["descricao"] == "API do WhatsApp no seu servidor (Evolution)"
 
 
 def test_segredo_e_somente_escrita_e_auditado_sem_valor(client, gestor, db):

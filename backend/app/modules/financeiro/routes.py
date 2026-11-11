@@ -17,7 +17,7 @@ from app.core.db import agora, hoje
 from app.core.deps import Ctx
 from app.core.models import Usuario
 from app.core.permissoes import adicionar_regras
-from app.core.schemas import EnvioEmailIn, EnvioEmailOut, Pagina
+from app.core.schemas import EnvioEmailIn, EnvioEmailOut, EnvioWhatsAppIn, EnvioWhatsAppOut, Pagina
 from app.domain import RegraViolada
 from app.domain import caixa as dom_caixa
 from app.domain import cobranca as dom_cob
@@ -641,6 +641,22 @@ def enviar_email_cobranca(cobranca_id: int, dados: EnvioEmailIn, ctx: Ctx):
                         "modelo_id": dados.modelo_id})
     ctx.db.commit()
     return EnvioEmailOut(enviado_para=m.para + m.cc, registro=f"Histórico da cobrança atualizado: {linha}")
+
+
+@router.post("/cobrancas/{cobranca_id}/enviar-whatsapp", response_model=EnvioWhatsAppOut)
+def enviar_whatsapp_cobranca(cobranca_id: int, dados: EnvioWhatsAppIn, ctx: Ctx):
+    """Envia pelo WhatsApp (app.core.envio: telefone, opt-out, Evolution, assinatura) e acrescenta a linha ao
+    histórico da cobrança."""
+    c = _cobranca(ctx, cobranca_id)
+    _modelo_financeiro(ctx, dados.modelo_id)
+    m = envio.enviar_whatsapp_por_usuario(ctx.db, ctx.usuario, para=dados.para, texto=dados.texto)
+    linha = dom_envio.linha_historico_cobranca_whatsapp(hoje(), m, ctx.usuario.nome)
+    antes = c.historico
+    c.historico = dom_envio.acrescentar_historico(c.historico, linha)
+    ctx.auditar("cobranca.enviar_whatsapp", "cobranca", c.id, descricao=linha, antes={"historico": antes},
+                depois={"historico": c.historico, "para": m.para, "modelo_id": dados.modelo_id})
+    ctx.db.commit()
+    return EnvioWhatsAppOut(enviado_para=m.para, registro=f"Histórico da cobrança atualizado: {linha}")
 
 
 # ================================================================ caixa, dashboards e hoje

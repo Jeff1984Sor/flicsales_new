@@ -374,6 +374,7 @@ class PropostaAtualizar(BaseModel):
     responsavel_id: int | None = None
     status: StatusProposta | None = None
     justificativa_desconto: Texto = None
+    modelo_proposta_id: int | None = None
 
 
 class PropostaOut(Schema):
@@ -399,6 +400,51 @@ class PropostaOut(Schema):
     justificativa_desconto: str | None
     total: Decimal
     criado_em: datetime
+    modelo_proposta_id: int | None = None
+    # só na proposta automática: por que a IA não redigiu o escopo (desligada/indisponível); null = sem aviso
+    aviso: str | None = None
+
+
+class PropostaAutomaticaIn(BaseModel):
+    modelo_proposta_id: int | None = None
+    produto_id: int | None = None
+    usar_ia: bool = False
+
+
+# ------------------------------------------------------------------------------------------------ modelos de proposta
+class ModeloPropostaOut(Schema):
+    id: int
+    nome: str
+    padrao: bool
+    introducao: str | None
+    termos: str | None
+    rodape: str | None
+    validade_dias: int
+    condicao_padrao: str | None
+    ativo: bool
+    variaveis: list[str] = []
+
+
+class ModeloPropostaCriar(BaseModel):
+    nome: str = Field(min_length=1, max_length=150)
+    padrao: bool = False
+    introducao: str | None = Field(default=None, max_length=20000)
+    termos: str | None = Field(default=None, max_length=20000)
+    rodape: str | None = Field(default=None, max_length=5000)
+    validade_dias: int = 15
+    condicao_padrao: str | None = Field(default=None, max_length=40)
+    ativo: bool = True
+
+
+class ModeloPropostaAtualizar(BaseModel):
+    nome: str | None = Field(default=None, min_length=1, max_length=150)
+    padrao: bool | None = None
+    introducao: str | None = Field(default=None, max_length=20000)
+    termos: str | None = Field(default=None, max_length=20000)
+    rodape: str | None = Field(default=None, max_length=5000)
+    validade_dias: int | None = None
+    condicao_padrao: str | None = Field(default=None, max_length=40)
+    ativo: bool | None = None
 
 
 # ------------------------------------------------------------------------------------------------ metas e forecast

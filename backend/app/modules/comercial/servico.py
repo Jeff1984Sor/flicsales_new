@@ -28,6 +28,7 @@ from app.modules.comercial.models import (
     Etapa,
     Funil,
     ModeloComunicacao,
+    ModeloProposta,
     Oportunidade,
     OportunidadeEvento,
     Proposta,
@@ -287,3 +288,92 @@ def oportunidades_abertas_resumo(db: Session, funil_id: int | None = None) -> li
     if funil_id:
         q = q.where(Oportunidade.funil_id == funil_id)
     return list(db.scalars(q))
+
+
+# ------------------------------------------------------------------------------------------------ proposta: documento
+def modelo_proposta_padrao(db: Session) -> ModeloProposta | None:
+    return db.scalar(select(ModeloProposta).where(ModeloProposta.padrao.is_(True), ModeloProposta.ativo.is_(True))
+                     .order_by(ModeloProposta.id).limit(1))
+
+
+def garantir_modelo_proposta(db: Session) -> None:
+    """Sem nenhum modelo de proposta, cria "Proposta comercial padrão" (só `flush`: quem chama faz o commit)."""
+    from app.domain.modelo_proposta import MODELO_INICIAL
+
+    if db.scalar(select(func.count()).select_from(ModeloProposta)):
+        return
+    db.add(ModeloProposta(**MODELO_INICIAL, ativo=True))
+    db.flush()
+
+
+def modelo_da_proposta(db: Session, proposta: Proposta):
+    """Modelo usado no documento: o da proposta; senão o padrão; senão os textos iniciais (sem gravar nada)."""
+    from app.domain.modelo_proposta import MODELO_INICIAL
+
+    m = db.get(ModeloProposta, proposta.modelo_proposta_id) if proposta.modelo_proposta_id else None
+    return m or modelo_proposta_padrao(db) or ModeloProposta(**MODELO_INICIAL, ativo=True)
+
+
+def variaveis_da_proposta(db: Session, proposta: Proposta, ref: date | None = None) -> dict[str, str | None]:
+    from app.domain.modelo_proposta import valores_variaveis
+
+    op = db.get(Oportunidade, proposta.oportunidade_id)
+    emp = db.get(Empresa, proposta.empresa_id)
+    contato = db.get(Pessoa, op.contato_id) if op is not None and op.contato_id else None
+    resp = db.get(Usuario, proposta.responsavel_id)
+    return valores_variaveis(
+        empresa_nome=emp.nome if emp else None, empresa_cnpj=emp.documento if emp else None,
+        contato_nome=contato.nome if contato else None, oportunidade_titulo=op.titulo if op else None,
+        proposta_titulo=proposta.titulo, total=proposta.total, validade=proposta.validade,
+        condicao=proposta.condicao, responsavel_nome=resp.nome if resp else None, hoje=ref or hoje())
+
+
+def _endereco_texto(e: Empresa) -> str | None:
+    linha1 = ", ".join(x for x in (e.logradouro, e.numero, e.complemento) if x)
+    linha2 = " - ".join(x for x in (e.bairro, e.cidade, e.uf) if x)
+    partes = [x for x in (linha1, linha2, f"CEP {e.cep}" if e.cep else None) if x]
+    return " · ".join(partes) if partes else (e.endereco or None)
+
+
+def gerar_pdf_proposta(db: Session, proposta: Proposta) -> bytes:
+    """PDF da proposta (bytes). Não grava nada no banco. Assinatura estável: a frente WhatsApp anexa este PDF."""
+    from app.core import storage
+    from app.core.models import Identidade
+    from app.domain.modelo_proposta import linha_item, mostra_faixa_rascunho
+    from app.modules.comercial.pdf_proposta import DocumentoProposta, desenhar
+
+    ref = hoje()
+    ident = db.get(Identidade, 1) or db.scalar(select(Identidade).order_by(Identidade.id).limit(1))
+    logo = None
+    if ident is not None and storage.existe(ident.logo_path):
+        try:
+            logo = storage.ler(ident.logo_path)
+        except (OSError, storage.ArquivoInvalido):
+            logo = None
+    modelo = modelo_da_proposta(db, proposta)
+    valores = variaveis_da_proposta(db, proposta, ref)
+    op = db.get(Oportunidade, proposta.oportunidade_id)
+    emp = db.get(Empresa, proposta.empresa_id)
+    contato = db.get(Pessoa, op.contato_id) if op is not None and op.contato_id else None
+    resp = db.get(Usuario, proposta.responsavel_id)
+    produto = db.get(Produto, proposta.produto_id) if proposta.produto_id else None
+    item = linha_item(quantidade=proposta.quantidade, preco_unitario=proposta.preco_unitario,
+                      desconto_pct=proposta.desconto_pct)
+    doc = DocumentoProposta(
+        organizacao=(ident.nome_exibicao if ident else None) or "FlicSales OS",
+        cor=ident.cor_destaque if ident else None, logo=logo,
+        titulo=proposta.titulo, versao=proposta.versao, emissao=ref, validade=proposta.validade,
+        status=proposta.status, rascunho=mostra_faixa_rascunho(proposta.status, proposta.desconto_pct),
+        empresa_nome=emp.nome if emp else "-", empresa_cnpj=emp.documento if emp else None,
+        empresa_endereco=_endereco_texto(emp) if emp else None,
+        contato_nome=contato.nome if contato else None, contato_email=contato.email if contato else None,
+        introducao=regras.renderizar_modelo(modelo.introducao, valores)[0],
+        escopo=proposta.escopo,
+        item_nome=produto.nome if produto else proposta.titulo,
+        quantidade=item["quantidade"], preco_unitario=item["preco_unitario"], desconto_pct=item["desconto_pct"],
+        total=proposta.total, mensalidade_adicional=proposta.mensalidade_adicional or ZERO,
+        condicao=proposta.condicao, termos=regras.renderizar_modelo(modelo.termos, valores)[0],
+        responsavel_nome=resp.nome if resp else None, responsavel_email=resp.email if resp else None,
+        rodape=regras.renderizar_modelo(modelo.rodape, valores)[0],
+    )
+    return desenhar(doc)

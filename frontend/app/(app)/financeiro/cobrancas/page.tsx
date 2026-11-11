@@ -12,6 +12,7 @@ import { BarraFiltros } from "@/components/flic/barra-filtros";
 import { DataTable, type Coluna } from "@/components/flic/data-table";
 import { Dinheiro } from "@/components/flic/dinheiro";
 import { EnviarEmailDrawer } from "@/components/flic/enviar-email";
+import { EnviarWhatsAppDrawer, usePodeWhatsApp } from "@/components/flic/enviar-whatsapp";
 import { Etiqueta, type TomEtiqueta } from "@/components/flic/etiqueta";
 import { useAtalhoNovo } from "@/components/flic/eventos";
 import { PageHeader } from "@/components/flic/page-header";
@@ -39,6 +40,8 @@ export default function FinanceiroCobrancasPage() {
   const [form, setForm] = useState<{ c: Cobranca | null } | null>(null);
   const [titulo, setTitulo] = useState<number | null>(null);
   const [email, setEmail] = useState<Cobranca | null>(null);
+  const [whats, setWhats] = useState<Cobranca | null>(null);
+  const podeWhats = usePodeWhatsApp();
   useAtalhoNovo(() => podeEditar && setForm({ c: null }));
   const lista = useQuery({
     queryKey: [CHAVE, "cobrancas", situacao, busca],
@@ -156,9 +159,16 @@ export default function FinanceiroCobrancasPage() {
         carregando={lista.isPending}
         vazio={{ icone: ClipboardList, titulo: "Nenhum registro.", descricao: "Use “Novo registro” para começar." }}
       />
-      <Limite>“Em contestação” suspende a cobrança automática do título. Mensagens só saem pelo “Enviar e-mail” da cobrança, com registro no histórico.</Limite>
-      <FormCobranca aberto={form != null} onFechar={() => setForm(null)} cobranca={form?.c} onEnviarEmail={podeEditar ? setEmail : undefined} />
+      <Limite>“Em contestação” suspende a cobrança automática do título. Mensagens só saem pelo “Enviar e-mail” ou “WhatsApp” da cobrança, com registro no histórico.</Limite>
+      <FormCobranca
+        aberto={form != null}
+        onFechar={() => setForm(null)}
+        cobranca={form?.c}
+        onEnviarEmail={podeEditar ? setEmail : undefined}
+        onEnviarWhatsApp={podeEditar && podeWhats ? setWhats : undefined}
+      />
       {email && <EnviarEmailCobranca c={email} onFechar={() => setEmail(null)} aoEnviar={() => setForm(null)} />}
+      {whats && <EnviarWhatsAppCobranca c={whats} onFechar={() => setWhats(null)} aoEnviar={() => setForm(null)} />}
       <DetalheTitulo id={titulo} onFechar={() => setTitulo(null)} />
     </>
   );
@@ -179,6 +189,25 @@ function EnviarEmailCobranca({ c, onFechar, aoEnviar }: { c: Cobranca; onFechar:
       modelos="financeiro"
       contexto={`${c.empresa_nome} · ${c.titulo_descricao}`}
       assuntoInicial={c.assunto}
+      aoEnviar={aoEnviar}
+    />
+  );
+}
+
+/** "WhatsApp" da cobrança: a empresa vem do título (sugere os telefones das pessoas dela); modelos financeiros de WhatsApp. */
+function EnviarWhatsAppCobranca({ c, onFechar, aoEnviar }: { c: Cobranca; onFechar: () => void; aoEnviar: () => void }) {
+  const titulo = useQuery({
+    queryKey: [CHAVE, "titulo", c.titulo_id],
+    queryFn: () => api.get<TituloDetalhe>(`/financeiro/titulos/${c.titulo_id}`),
+  });
+  return (
+    <EnviarWhatsAppDrawer
+      aberto
+      onFechar={onFechar}
+      destino={{ tipo: "cobranca", id: c.id }}
+      empresaId={titulo.data?.empresa_id}
+      modelos="financeiro"
+      contexto={`${c.empresa_nome} · ${c.titulo_descricao}`}
       aoEnviar={aoEnviar}
     />
   );

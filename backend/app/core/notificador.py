@@ -1,7 +1,9 @@
 """Envio de texto por WhatsApp (ou outro canal) usado pelo core, ex.: código de recuperação de senha.
 
-A implementação real (WasenderAPI) vem do módulo de comunicação e se registra com `definir_notificador`.
-Sem ela, o padrão apenas registra no log que não há canal configurado (sem o texto: pode conter um código).
+A implementação real é a Evolution API (`app.modules.orquestracao.evolution.NotificadorEvolution`), registrada com
+`definir_notificador` quando a API carrega os módulos (app/modules/orquestracao/routes.py). Ela lê a configuração
+(Núcleo › Integrações › WhatsApp) do banco da organização do pedido atual. Sem módulo/conexão, o envio só registra no
+log que não há canal configurado (sem o texto: pode conter um código).
 """
 
 import logging

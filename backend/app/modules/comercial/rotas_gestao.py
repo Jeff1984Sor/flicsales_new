@@ -15,6 +15,7 @@ from app.domain import envio as dom_envio
 from app.domain.dinheiro import ZERO, formatar_brl
 from app.domain.funil import ItemForecast, alem_do_limite, forecast_ponderado
 from app.domain.indicadores import FORMULAS, apuracao_meta, ciclo_mediano, conversao, ticket_medio
+from app.domain.modelo_proposta import nome_arquivo_pdf
 from app.domain.modelos_comunicacao import classificacoes_do_filtro
 from app.domain.proposta import exige_aprovacao_desconto, proxima_versao, validar_proposta
 from app.modules.comercial import regras
@@ -27,6 +28,7 @@ from app.modules.comercial.models import (
     IndicadorConfig,
     Meta,
     ModeloComunicacao,
+    ModeloProposta,
     Oportunidade,
     Playbook,
     Proposta,
@@ -155,6 +157,8 @@ def atualizar_proposta(proposta_id: int, dados: PropostaAtualizar, ctx: Ctx):
     d = dados.model_dump(exclude_unset=True)
     if "produto_id" in d:
         _conferir_produto(db, d["produto_id"])
+    if d.get("modelo_proposta_id") is not None and db.get(ModeloProposta, d["modelo_proposta_id"]) is None:
+        raise RegraViolada("Modelo de proposta não encontrado. Escolha outro modelo.")
     for chave in ("desconto_pct", "mensalidade_adicional"):
         if chave in d and d[chave] is None:
             d[chave] = Decimal("0")
@@ -170,7 +174,7 @@ def atualizar_proposta(proposta_id: int, dados: PropostaAtualizar, ctx: Ctx):
         else:
             d["responsavel_id"] = sv.responsavel_efetivo(ctx, d["responsavel_id"])
     for k, v in d.items():
-        if v is not None or k in ("produto_id", "justificativa_desconto"):
+        if v is not None or k in ("produto_id", "justificativa_desconto", "modelo_proposta_id"):
             setattr(p, k, v)
     if p.status != status_antes:
         extra = " (a oportunidade segue aberta até o fechamento ser revisado)" if p.status == "aceita" else ""
@@ -208,8 +212,11 @@ def enviar_email_proposta(proposta_id: int, dados: PropostaEnvioIn, ctx: Ctx):
     db = ctx.db
     p = sv.obter(ctx, Proposta, proposta_id, "Proposta não encontrada.")
     sv.conferir_modelo_comercial(db, dados.modelo_id)
+    anexos = None
+    if dados.anexar_pdf:  # PDF do mesmo jeito que GET /propostas/{id}/pdf (servico.gerar_pdf_proposta)
+        anexos = [(nome_arquivo_pdf(p.id, p.versao), sv.gerar_pdf_proposta(db, p), "application/pdf")]
     m = envio.enviar_por_usuario(db, ctx.usuario, para=dados.para, cc=dados.cc, assunto=dados.assunto,
-                                 corpo=dados.corpo)
+                                 corpo=dados.corpo, anexos=anexos)
     antes = audit.snapshot(p)
     c = Comunicacao(canal="email", titulo=m.assunto, conteudo=dom_envio.conteudo_comunicacao(m), data=sv.hoje(),
                     empresa_id=p.empresa_id, oportunidade_id=p.oportunidade_id)
@@ -224,8 +231,8 @@ def enviar_email_proposta(proposta_id: int, dados: PropostaEnvioIn, ctx: Ctx):
     partes = [f"Comunicação #{c.id} registrada na oportunidade."]
     partes.append("Proposta marcada como Enviada." if mudou else
                   f"Status mantido: {STATUS_ROTULO.get(p.status, p.status)}.")
-    if dados.anexar_pdf:  # ainda não há geração de PDF da proposta: nada é anexado e a tela é avisada
-        partes.append("PDF não anexado: a geração de PDF da proposta ainda não está disponível.")
+    if anexos:
+        partes.append(f"PDF anexado: {anexos[0][0]}.")
     a, d = audit.diff(antes, audit.snapshot(p))
     ctx.auditar("proposta.enviar_email", "proposta", p.id, descricao=f"{p.titulo} v{p.versao}: {m.assunto}",
                 antes=a, depois={**d, "para": m.para, "cc": m.cc, "assunto": m.assunto, "modelo_id": dados.modelo_id,

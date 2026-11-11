@@ -5,7 +5,9 @@ Garantias:
   (ou dois workers ao mesmo tempo) não duplica: a UNIQUE do banco decide.
 - **Retentativas limitadas**: execução que falhou repete até `MAX_TENTATIVAS`; depois fica "falhou" no histórico.
 - **Prevenção de ciclo**: atividade criada por uma automação não dispara a mesma automação (via `registro_criado`).
-- **Criar atividade ≠ enviar**: ações de envio ficam "pendente_conector" (nenhuma mensagem sai nesta fase).
+- **Criar atividade ≠ enviar**: e-mail automático fica "pendente_conector". WhatsApp sai DE VERDADE só com a Evolution
+  conectada (Núcleo › Integrações), pulando quem pediu opt-out (`envio.telefones_liberados`); sem conexão, também
+  fica "pendente_conector".
 - **Cobrança**: só títulos aberto/parcial com saldo e sem contestação (as regras estão no domínio).
 
 Não depende de chamadas dos outros módulos: lê as tabelas (oportunidade_evento, atividade, titulo, baixa, cobranca…).
@@ -20,15 +22,17 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core import audit
+from app.core import audit, envio
 from app.core.db import agora
 from app.core.models import PerfilAcesso, Usuario
 from app.domain import RegraViolada
 from app.domain import automacao as dom
+from app.domain import envio as dom_envio
 from app.domain.atividade import validar_atividade
 from app.modules.comercial.models import Atividade, Comunicacao, Etapa, Oportunidade, OportunidadeEvento
 from app.modules.financeiro.models import Baixa, Cobranca, Recorrencia, Titulo
 from app.modules.nucleo.models import CampoCustom, Empresa, Pessoa
+from app.modules.orquestracao import evolution
 from app.modules.orquestracao.ia.ferramentas import calcular_caixa
 from app.modules.orquestracao.models import Automacao, AutomacaoExecucao
 
@@ -182,6 +186,64 @@ def _atualizar_campo(db: Session, a: Automacao, oc: dom.Ocorrencia) -> tuple[str
     raise RegraViolada("Atualizar campo não se aplica a este registro.")
 
 
+def _telefone_de(p: Pessoa) -> str | None:
+    """Telefone para WhatsApp da pessoa: o marcado como WhatsApp, senão celular, senão o principal."""
+    lista = [t for t in (p.telefones or []) if isinstance(t, dict) and t.get("numero")]
+    for tipo in ("whatsapp", "celular"):
+        for t in lista:
+            if t.get("tipo") == tipo:
+                return str(t["numero"])
+    return p.telefone or None
+
+
+def _destinatarios_whatsapp(db: Session, a: Automacao, oc: dom.Ocorrencia) -> tuple[list[str], str]:
+    """(telefones, quem) para o envio automático. `destinatario` = "contato_principal" (contato da oportunidade ou o
+    primeiro contato ativo da empresa) ou telefones escritos na automação (separados por vírgula)."""
+    alvo = (a.destinatario or "").strip()
+    if alvo != "contato_principal":
+        fones = [x.strip() for x in alvo.replace(";", ",").split(",") if x.strip()]
+        return fones, ", ".join(fones)
+    pessoa = None
+    if oc.oportunidade_id:
+        o = db.get(Oportunidade, oc.oportunidade_id)
+        if o is not None and o.contato_id:
+            pessoa = db.get(Pessoa, o.contato_id)
+    if pessoa is None and oc.empresa_id:
+        pessoa = db.scalar(select(Pessoa).where(Pessoa.empresa_id == oc.empresa_id, Pessoa.ativo.is_(True))
+                           .order_by(Pessoa.id).limit(1))
+    if pessoa is None:
+        raise RegraViolada(f"Sem contato para enviar o WhatsApp em {oc.rotulo}: cadastre um contato na empresa.")
+    fone = _telefone_de(pessoa)
+    if not fone:
+        raise RegraViolada(f"{pessoa.nome} não tem telefone cadastrado: cadastre o WhatsApp do contato.")
+    return [fone], pessoa.nome
+
+
+def _enviar_whatsapp(db: Session, a: Automacao, oc: dom.Ocorrencia, hoje: date, texto: str,
+                     cfg: "evolution.Config") -> tuple[str, str | None, str]:
+    """Envio REAL pela Evolution conectada. Quem pediu opt-out é pulado (`telefones_liberados`), sem erro."""
+    if not texto.strip():
+        raise RegraViolada("O modelo da automação ficou vazio: revise o texto.")
+    fones, quem = _destinatarios_whatsapp(db, a, oc)
+    liberados = envio.telefones_liberados(db, fones, origem=f"automação #{a.id}")
+    if not liberados:
+        return "ignorada", None, f"Envio pulado ({quem}): opt-out ou telefone inválido. Nenhuma mensagem foi enviada."
+    for n in liberados:
+        try:
+            evolution.enviar(cfg, n, texto[:4000])
+        except evolution.ErroEvolution as e:
+            raise RegraViolada(f"Não foi possível enviar pelo WhatsApp: {e.mensagem}.") from None
+    para = ", ".join(dom_envio.formatar_whatsapp(n) for n in liberados)
+    c = Comunicacao(canal="whatsapp", titulo=f"Automação: {a.nome}"[:200],
+                    conteudo=f"Para: {para}\n\n{texto}", data=hoje, empresa_id=oc.empresa_id,
+                    oportunidade_id=oc.oportunidade_id)
+    db.add(c)
+    db.flush()
+    audit.registrar(db, usuario=None, acao="comunicacao.enviar_whatsapp", entidade="comunicacao", entidade_id=c.id,
+                    descricao=f"Automação #{a.id} · {a.nome}", depois={"para": liberados, "registro": oc.registro})
+    return "executada", f"comunicacao:{c.id}", f"WhatsApp enviado para {para} ({quem})"
+
+
 def aplicar_acao(db: Session, a: Automacao, oc: dom.Ocorrencia, hoje: date) -> tuple[str, str | None, str]:
     """(resultado, registro_criado, detalhe). Levanta RegraViolada quando não dá para executar."""
     texto = dom.renderizar(a.conteudo, oc.variaveis)
@@ -192,6 +254,10 @@ def aplicar_acao(db: Session, a: Automacao, oc: dom.Ocorrencia, hoje: date) -> t
         return "notificado", f"usuario:{uid}", texto[:2000]
     if a.acao == "atualizar_campo":
         return _atualizar_campo(db, a, oc)
+    if a.acao == "enviar_whatsapp":
+        cfg = evolution.conectada(db)
+        if cfg is not None:
+            return _enviar_whatsapp(db, a, oc, hoje, texto, cfg)
     if a.acao in dom.CANAL_DA_ACAO:
         return ("pendente_conector", None,
                 f"Envio preparado ({dom.ACOES[a.acao]} · {a.destinatario}); aguardando conector autorizado. "
@@ -270,7 +336,9 @@ def testar(db: Session, a: Automacao, hoje: date) -> dict[str, Any]:
     observacao = "Prévia de elegibilidade: não cria tarefas e não envia mensagens."
     if a.gatilho in dom.GATILHOS_DE_EVENTO and a.estado != "ativa":
         observacao += " Gatilhos de evento consideram os últimos 7 dias; ao ativar, só eventos novos disparam."
-    if a.acao in dom.CANAL_DA_ACAO:
+    if a.acao == "enviar_whatsapp" and evolution.conectada(db) is not None:
+        observacao += " Ativa, envia pelo WhatsApp conectado (quem pediu opt-out é pulado)."
+    elif a.acao in dom.CANAL_DA_ACAO:
         observacao += " Envios ficam pendentes de conector autorizado."
     db.add(AutomacaoExecucao(automacao_id=a.id, chave_idempotencia=f"teste:{a.id}:{uuid4().hex}"[:200],
                              registro=f"{len(novas)} registro(s)", resultado="simulada", simulacao=True,

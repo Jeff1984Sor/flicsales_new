@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { ModelosProposta } from "@/components/comercial/modelos-proposta";
 import { PageHeader } from "@/components/flic/page-header";
 import { Painel } from "@/components/flic/painel";
 import { Button } from "@/components/ui/button";
@@ -33,16 +34,21 @@ export default function GestaoComercialPage() {
           </details>
         ))}
       </Painel>
+      <Painel titulo="Modelos de proposta">
+        <ModelosProposta />
+      </Painel>
       <Painel titulo="O que está disponível nesta versão">
         <p className="text-sm leading-relaxed">
           Funis configuráveis com etapas, probabilidade, limite de dias e critérios; oportunidade com qualificação completa e empresa nascendo dentro do
           registro; próxima ação, ganho com recebíveis em rascunho no Financeiro e perda com motivo, concorrente e data de retomada; atividades e
-          comunicações vinculadas com análise por evidências; propostas versionadas com aprovação de desconto; metas com apuração e forecast
+          comunicações vinculadas com análise por evidências; propostas versionadas com aprovação de desconto, geradas por modelo e
+          baixadas em PDF; metas com apuração e forecast
           ponderado; desempenho com fórmulas visíveis; dashboards com indicadores por campo personalizado; playbooks e modelos de comunicação;
           histórico compartilhado e auditoria de toda alteração.
         </p>
         <p className="mt-3 text-sm text-muted">
-          Envio de mensagens, convites de agenda e assinatura de propostas dependem de conectores autorizados em Integrações. Probabilidades são
+          E-mail e WhatsApp saem só pelo botão de envio, com conector autorizado em Integrações; convites de agenda e assinatura de propostas
+          ainda não estão disponíveis. Probabilidades são
           parâmetros configurados, não previsões de IA.
         </p>
       </Painel>

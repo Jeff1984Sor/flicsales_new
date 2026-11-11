@@ -34,6 +34,7 @@ from app.core.schemas import (
     TokenOut,
     TrocarSenhaIn,
     UsuarioMe,
+    WhatsAppMeOut,
 )
 from app.domain import RegraViolada
 
@@ -403,9 +404,12 @@ def testar_email_usuario(ctx: Ctx, dados: EmailUsuarioIn | None = None):
 
 @router.get("/me/envio", response_model=EnvioMeOut)
 def envio_do_usuario(ctx: Ctx):
-    """Como os e-mails do usuário sairiam agora (a tela mostra "Enviar como …" e habilita o botão)."""
+    """Como os e-mails do usuário sairiam agora (a tela mostra "Enviar como …" e habilita o botão) e se há WhatsApp
+    conectado (Evolution) para os botões "WhatsApp"."""
     v = envio.via_de_envio(ctx.db, ctx.usuario)
-    return EnvioMeOut(pode_enviar=v.pode_enviar, via=v.via, remetente=v.remetente)
+    w = envio.via_whatsapp(ctx.db)
+    return EnvioMeOut(pode_enviar=v.pode_enviar, via=v.via, remetente=v.remetente,
+                      whatsapp=WhatsAppMeOut(pode_enviar=w.pode_enviar, numero=w.numero))
 
 
 def _usuario(ctx, uid: int) -> Usuario:

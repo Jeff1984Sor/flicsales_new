@@ -249,3 +249,52 @@ class IntegracaoOut(BaseModel):
 
 class MensagemOut(BaseModel):
     mensagem: str
+
+
+# ------------------------------------------------------------------------------------------------ WhatsApp (Evolution)
+class EvolutionIn(BaseModel):
+    """PUT /integracoes/whatsapp/evolution. apikey ausente/vazia = mantém a salva (somente escrita)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+    url: str = Field(min_length=1, max_length=300)
+    apikey: str | None = Field(default=None, max_length=500)
+    instancia: str | None = Field(default=None, max_length=100)
+
+
+class EvolutionOut(BaseModel):
+    configurado: bool
+    provedor: str | None
+    url: str | None
+    instancia: str | None
+    chave_final: str | None  # "••••••abcd"
+    estado: str  # desconectado | conectado | erro
+    numero: str | None = None
+    testado_em: datetime | None
+    ultimo_erro: str | None
+
+
+class EvolutionBuscarIn(BaseModel):
+    """POST …/evolution/instancias: URL/apikey do formulário (vazias = as salvas)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+    url: str | None = Field(default=None, max_length=300)
+    apikey: str | None = Field(default=None, max_length=500)
+
+
+class InstanciaEvolutionOut(BaseModel):
+    nome: str
+    estado: str  # conectado | conectando | desconectado
+    numero: str | None
+
+
+class TesteWhatsAppOut(BaseModel):
+    ok: bool
+    estado: str
+    mensagem: str
+
+
+class QrCodeOut(BaseModel):
+    base64: str | None  # "data:image/png;base64,…" como a Evolution devolve
+    codigo_pareamento: str | None
+    estado: str  # conectando | conectado
+    mensagem: str

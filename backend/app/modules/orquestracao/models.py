@@ -80,6 +80,10 @@ class Integracao(Base, Timestamped):
     # 0002: "Testar conexão" (WhatsApp/Google/Outlook validam o formato e ficam aguardando o conector oficial)
     testado_em: Mapped[datetime | None] = mapped_column(UtcDateTime())
     aguardando_conector: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # 0008: WhatsApp pela Evolution API (provedor "evolution"; a apikey fica em segredo_cifrado)
+    provedor: Mapped[str | None] = mapped_column(String(20))
+    url: Mapped[str | None] = mapped_column(String(300))
+    instancia: Mapped[str | None] = mapped_column(String(100))
 
 
 

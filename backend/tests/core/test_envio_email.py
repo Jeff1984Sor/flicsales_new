@@ -103,16 +103,18 @@ def test_me_envio_diz_por_onde_sai(client, db, monkeypatch):
     _, h = _logar(client, db)
     assert client.get("/api/auth/me/envio").status_code == 401
     assert client.get("/api/auth/me/envio", headers=h).json() == {
-        "pode_enviar": True, "via": "outbox", "remetente": settings.smtp_from}
+        "pode_enviar": True, "via": "outbox", "remetente": settings.smtp_from,
+        "whatsapp": {"pode_enviar": False, "numero": None}}  # WhatsApp (Evolution) não conectado
     monkeypatch.setattr(settings, "ambiente", "prod")
     monkeypatch.setattr(settings, "smtp_host", None)
-    assert client.get("/api/auth/me/envio", headers=h).json() == {"pode_enviar": False, "via": None, "remetente": None}
+    assert client.get("/api/auth/me/envio", headers=h).json() == {"pode_enviar": False, "via": None, "remetente": None,
+                                                                   "whatsapp": {"pode_enviar": False, "numero": None}}
     _org(db)
-    assert client.get("/api/auth/me/envio", headers=h).json() == {
-        "pode_enviar": True, "via": "organizacao", "remetente": "Flic Org <contato@org.com>"}
+    r = client.get("/api/auth/me/envio", headers=h).json()
+    assert (r["pode_enviar"], r["via"], r["remetente"]) == (True, "organizacao", "Flic Org <contato@org.com>")
     client.put(URL, json=FORM, headers=h)
-    assert client.get("/api/auth/me/envio", headers=h).json() == {
-        "pode_enviar": True, "via": "usuario", "remetente": "Marina Souza <marina@minhaempresa.com>"}
+    r = client.get("/api/auth/me/envio", headers=h).json()
+    assert (r["via"], r["remetente"]) == ("usuario", "Marina Souza <marina@minhaempresa.com>")
     client.put(URL, json={**FORM, "ativo": False}, headers=h)  # inativo: volta para a organização
     assert client.get("/api/auth/me/envio", headers=h).json()["via"] == "organizacao"
 

@@ -10,6 +10,7 @@ import { BarraFiltros } from "@/components/flic/barra-filtros";
 import { CampoDrawer, Drawer } from "@/components/flic/drawer";
 import { EmptyState } from "@/components/flic/empty-state";
 import { EnviarEmailDrawer } from "@/components/flic/enviar-email";
+import { EnviarWhatsAppDrawer, usePodeWhatsApp } from "@/components/flic/enviar-whatsapp";
 import { Etiqueta } from "@/components/flic/etiqueta";
 import { useAtalhoNovo } from "@/components/flic/eventos";
 import { Fonte } from "@/components/flic/fonte";
@@ -58,7 +59,8 @@ export default function ComunicacoesPage() {
   const [importar, setImportar] = useState(false);
   const [sel, setSel] = useState<Comunicacao | null>(null);
   const [autoAnalisar, setAutoAnalisar] = useState(false);
-  const [email, setEmail] = useState<{ empresaId: number | null; oportunidadeId: number | null; assunto?: string } | null>(null);
+  const podeWhats = usePodeWhatsApp();
+  const [email, setEmail] = useState<Envio | null>(null);
   useAtalhoNovo(() => editar && setImportar(true));
 
   const { data: lista, isPending } = useQuery({
@@ -73,9 +75,16 @@ export default function ComunicacoesPage() {
         descricao="Reuniões, e-mails e mensagens com contexto de negócio."
         acoes={
           editar ? (
-            <Button variant="outline" onClick={() => setEmail({ empresaId: null, oportunidadeId: null })}>
-              ✉ Enviar e-mail
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setEmail({ canal: "email", empresaId: null, oportunidadeId: null })}>
+                ✉ Enviar e-mail
+              </Button>
+              {podeWhats && (
+                <Button variant="outline" onClick={() => setEmail({ canal: "whatsapp", empresaId: null, oportunidadeId: null })}>
+                  WhatsApp
+                </Button>
+              )}
+            </>
           ) : undefined
         }
         acao={editar ? <Button onClick={() => setImportar(true)}>+ Importar conteúdo</Button> : undefined}
@@ -167,11 +176,12 @@ export default function ComunicacoesPage() {
             c={sel}
             editar={editar}
             autoAnalisar={autoAnalisar}
-            onEmail={() => setEmail({ empresaId: sel.empresa_id, oportunidadeId: sel.oportunidade_id, assunto: sel.titulo ? `Re: ${sel.titulo}` : undefined })}
+            onEmail={() => setEmail({ canal: "email", empresaId: sel.empresa_id, oportunidadeId: sel.oportunidade_id, assunto: sel.titulo ? `Re: ${sel.titulo}` : undefined })}
+            onWhatsApp={podeWhats ? () => setEmail({ canal: "whatsapp", empresaId: sel.empresa_id, oportunidadeId: sel.oportunidade_id }) : undefined}
           />
         )}
       </Drawer>
-      {email && <EnviarEmailComunicacao key={`${email.empresaId}-${email.oportunidadeId}`} inicial={email} onFechar={() => setEmail(null)} />}
+      {email && <EnviarComunicacao key={`${email.canal}-${email.empresaId}-${email.oportunidadeId}`} inicial={email} onFechar={() => setEmail(null)} />}
     </>
   );
 }
@@ -261,29 +271,22 @@ function FormImportar({ onFechar, aoImportar }: { onFechar: () => void; aoImport
 }
 
 /** "✉ Enviar e-mail" em Comunicações: escolhe a oportunidade/empresa (sugere as pessoas dela) e envia; vira comunicação. */
-function EnviarEmailComunicacao({
-  inicial,
-  onFechar,
-}: {
-  inicial: { empresaId: number | null; oportunidadeId: number | null; assunto?: string };
-  onFechar: () => void;
-}) {
+/** Envio a partir de Comunicações: e-mail ou WhatsApp, com a oportunidade/empresa escolhida. */
+interface Envio {
+  canal: "email" | "whatsapp";
+  empresaId: number | null;
+  oportunidadeId: number | null;
+  assunto?: string;
+}
+
+/** "✉ Enviar e-mail" / "WhatsApp" em Comunicações: escolhe a oportunidade/empresa (sugere as pessoas dela) e envia; vira comunicação. */
+function EnviarComunicacao({ inicial, onFechar }: { inicial: Envio; onFechar: () => void }) {
   const { data: opcoes } = useOpcoes();
   const [opId, setOpId] = useState(inicial.oportunidadeId != null ? String(inicial.oportunidadeId) : "");
   const [empId, setEmpId] = useState(inicial.empresaId != null ? String(inicial.empresaId) : "");
   const op = (opcoes?.oportunidades ?? []).find((o) => String(o.id) === opId);
   const empresaId = empId ? Number(empId) : (op?.empresa_id ?? null);
-  return (
-    <EnviarEmailDrawer
-      aberto
-      onFechar={onFechar}
-      destino={{ tipo: "comunicacao" }}
-      empresaId={empresaId}
-      oportunidadeId={opId ? Number(opId) : null}
-      modelos="comercial"
-      contexto="A mensagem enviada fica registrada como comunicação de e-mail."
-      assuntoInicial={inicial.assunto}
-      vinculo={
+  const vinculo = (
         <>
           <CampoDrawer rotulo="Oportunidade">
             <NativeSelect value={opId} onChange={(e) => setOpId(e.target.value)}>
@@ -306,7 +309,33 @@ function EnviarEmailComunicacao({
             </NativeSelect>
           </CampoDrawer>
         </>
-      }
+  );
+  const oportunidadeId = opId ? Number(opId) : null;
+  if (inicial.canal === "whatsapp") {
+    return (
+      <EnviarWhatsAppDrawer
+        aberto
+        onFechar={onFechar}
+        destino={{ tipo: "comunicacao" }}
+        empresaId={empresaId}
+        oportunidadeId={oportunidadeId}
+        modelos="comercial"
+        contexto="A mensagem enviada fica registrada como comunicação de WhatsApp."
+        vinculo={vinculo}
+      />
+    );
+  }
+  return (
+    <EnviarEmailDrawer
+      aberto
+      onFechar={onFechar}
+      destino={{ tipo: "comunicacao" }}
+      empresaId={empresaId}
+      oportunidadeId={oportunidadeId}
+      modelos="comercial"
+      contexto="A mensagem enviada fica registrada como comunicação de e-mail."
+      assuntoInicial={inicial.assunto}
+      vinculo={vinculo}
     />
   );
 }
@@ -316,11 +345,14 @@ function PainelAnalise({
   editar,
   autoAnalisar = false,
   onEmail,
+  onWhatsApp,
 }: {
   c: Comunicacao;
   editar: boolean;
   autoAnalisar?: boolean;
   onEmail: () => void;
+  /** presente só com o WhatsApp conectado */
+  onWhatsApp?: () => void;
 }) {
   const invalidar = useInvalidarComercial();
   const [analise, setAnalise] = useState<AnaliseComunicacao | null>(c.analise);
@@ -414,6 +446,11 @@ function PainelAnalise({
         {editar && (
           <Button variant="outline" onClick={onEmail}>
             ✉ Enviar e-mail
+          </Button>
+        )}
+        {editar && onWhatsApp && (
+          <Button variant="outline" onClick={onWhatsApp}>
+            WhatsApp
           </Button>
         )}
       </div>
