@@ -12,7 +12,7 @@ from app.modules.nucleo.models import Empresa, Pessoa
 def test_fornecedor_criar_e_editar(financeiro, db):
     cat = financeiro.post("/nucleo/categorias", {"nome": "Estrutura", "natureza": "despesa"}).json()
     r = financeiro.post("/nucleo/fornecedores", {
-        "nome": "Espaço Compartilhado", "documento": "11.222.333/0001-44", "contato": "Joana", "email": "a@b.demo",
+        "nome": "Espaço Compartilhado", "documento": "44.775.566/0001-60", "contato": "Joana", "email": "a@b.demo",
         "telefone": "11 3333", "categoria_padrao_id": cat["id"], "condicao_habitual": "Boleto todo dia 5"})
     assert r.status_code == 201, r.text
     f = r.json()

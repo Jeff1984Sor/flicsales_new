@@ -40,9 +40,12 @@ from app.domain.cadastro import (
     chave_de_nome,
     cnpj_valido,
     endereco_de,
+    formas_do_documento,
     normalizar_endereco,
     preencher_vazios,
     resolver_endereco_pessoa,
+    validar_documento_cadastro,
+    validar_documento_livre,
     validar_nome,
     validar_papeis,
 )
@@ -107,6 +110,7 @@ from app.modules.nucleo.schemas import (
     ProdutoSaida,
     SocioSaida,
     TipoAnexo,
+    _ReceitaSaida,
 )
 
 adicionar_regras([
@@ -224,7 +228,7 @@ def _empresa_saida(e: Empresa, *, opp: int = 0, tit: int = 0, saldo=0, resp: str
                    categoria: str | None = None, modelo=EmpresaSaida, ve: tuple[bool, bool] = (True, True)):
     ve_opp, ve_tit = ve
     base = {c: getattr(e, c) for c in EmpresaSaida.model_fields if hasattr(e, c)}
-    base.update(responsavel_nome=resp, categoria_padrao_nome=categoria,
+    base.update(responsavel_nome=resp, categoria_padrao_nome=categoria, cnaes_secundarios=e.cnaes_secundarios or [],
                 oportunidades=(opp or 0) if ve_opp else None, titulos_receber=(tit or 0) if ve_tit else None,
                 saldo_receber=_dinheiro(saldo) if ve_tit else None, campos_custom=e.campos_custom or {})
     return modelo(**base)
@@ -245,12 +249,28 @@ def _empresa_completa(ctx: Ctx, e: Empresa, modelo=EmpresaSaida):
     return saida
 
 
+def _validar_documento(ctx: Ctx, e: Empresa | None, dados: dict) -> None:
+    """Só quando o payload traz `documento`: CNPJ/CPF válido (com máscara) e não usado por outra empresa ativa.
+    Documento antigo inválido não é tocado se a tela não mandar o campo."""
+    if "documento" not in dados:
+        return
+    doc = dados["documento"] = validar_documento_cadastro(dados["documento"])
+    if doc is None:
+        return
+    q = select(Empresa.id, Empresa.nome, Empresa.documento).where(
+        Empresa.ativo.is_(True), Empresa.documento.in_(formas_do_documento(doc)))
+    if e is not None:
+        q = q.where(Empresa.id != e.id)
+    validar_documento_livre(doc, [tuple(linha) for linha in ctx.db.execute(q).all()])
+
+
 def _validar_empresa(ctx: Ctx, e: Empresa | None, dados: dict) -> dict:
     """Valida o que veio (criar: e=None) e devolve os atributos prontos para gravar."""
     if "nome" in dados:
         if dados["nome"] is None and e is not None:
             raise RegraViolada("Informe o nome da empresa.")
         dados["nome"] = servico.garantir_nome_livre(ctx.db, dados["nome"], exceto_id=e.id if e else None)
+    _validar_documento(ctx, e, dados)
     if "responsavel_id" in dados:
         _usuario_existe(ctx, dados["responsavel_id"])
     if dados.get("categoria_padrao_id") is not None and ctx.db.get(Categoria, dados["categoria_padrao_id"]) is None:
@@ -543,7 +563,8 @@ def _fornecedor_saida(ctx: Ctx, e: Empresa) -> FornecedorSaida:
     return FornecedorSaida(id=e.id, nome=e.nome, documento=e.documento, contato=contato, email=e.email_financeiro,
                            telefone=e.telefone, categoria_padrao_id=e.categoria_padrao_id, categoria_padrao_nome=cat,
                            condicao_habitual=e.condicao_habitual, observacoes=e.observacoes, papeis=e.papeis,
-                           ativo=e.ativo, titulos_pagar=n, **endereco_de(e))
+                           ativo=e.ativo, titulos_pagar=n, **endereco_de(e),
+                           **{c: getattr(e, c) for c in _ReceitaSaida.model_fields})
 
 
 def _fornecedor(ctx: Ctx, fid: int) -> Empresa:
@@ -562,6 +583,7 @@ def _dados_fornecedor(ctx: Ctx, e: Empresa | None, dados: dict) -> tuple[dict, s
         if valores["nome"] is None:
             raise RegraViolada("Informe o nome do fornecedor.")
         valores["nome"] = servico.garantir_nome_livre(ctx.db, valores["nome"], exceto_id=e.id if e else None)
+    _validar_documento(ctx, e, valores)
     if valores.get("categoria_padrao_id") is not None:
         cat = ctx.db.get(Categoria, valores["categoria_padrao_id"])
         if cat is None:
@@ -1131,6 +1153,24 @@ def _socio_dict(s: EmpresaSocio) -> dict:
             "data_entrada": s.data_entrada.isoformat() if s.data_entrada else None, "faixa_etaria": s.faixa_etaria}
 
 
+def _dados_receita(dados: dict) -> dict:
+    """Campos da Receita gravados na empresa a partir da consulta (sempre sobrescreve)."""
+    abertura = dados.get("abertura")
+    try:
+        data_abertura = date.fromisoformat(str(abertura)[:10]) if abertura else None
+    except ValueError:
+        data_abertura = None
+    capital = dados.get("capital_social")
+    return {
+        "cnae_principal": (dados.get("cnae_principal") or None) and str(dados["cnae_principal"])[:300],
+        "cnaes_secundarios": [str(c) for c in dados.get("cnaes_secundarios") or [] if c],
+        "natureza_juridica": (dados.get("natureza_juridica") or None) and str(dados["natureza_juridica"])[:200],
+        "capital_social": _dinheiro(capital) if capital not in (None, "") else None,
+        "situacao_cadastral": (dados.get("situacao") or None) and str(dados["situacao"])[:40],
+        "data_abertura": data_abertura,
+    }
+
+
 @router.post("/empresas/{empresa_id}/cnpj/aplicar", response_model=EmpresaDetalhe)
 def aplicar_cnpj(empresa_id: int, ctx: Ctx):
     """Consulta o CNPJ da empresa, substitui o quadro societário, preenche só os campos vazios (o endereço novo
@@ -1145,6 +1185,9 @@ def aplicar_cnpj(empresa_id: int, ctx: Ctx):
     for k, v in preencher_vazios({c: getattr(e, c) for c in CAMPOS_PREENCHIVEIS_CNPJ}, dados).items():
         setattr(e, k, normalizar_endereco({k: v})[k] if k in CAMPOS_ENDERECO else v)
     e.documento = dados["documento"]
+    for k, v in _dados_receita(dados).items():  # dados da Receita: sempre sobrescreve
+        setattr(e, k, v)
+    e.receita_consultada_em = agora_br
     ctx.db.flush()
     a, d = audit.diff(antes, audit.snapshot(e))
     if a or d:

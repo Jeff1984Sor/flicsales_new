@@ -9,6 +9,9 @@
  *  - `<AnexosEmpresa empresaId podeEditar />`
  *      lista com baixar/arquivar e envio com tipo (`/bff/nucleo/empresas/{id}/anexos`); o comprovante CNPJ aparece com
  *      a etiqueta "Cartão CNPJ".
+ *  - `<DadosReceita empresaId />`
+ *      somente leitura: situação cadastral, abertura, natureza jurídica, CNAEs e capital social gravados pela última
+ *      "Atualizar pela Receita" (`GET /bff/nucleo/empresas/{id}`; recarrega sozinho depois da atualização).
  *  - `aplicarCnpj(empresaId)`  chamada usada logo depois de criar empresa com CNPJ.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -17,13 +20,14 @@ import { useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/flic/confirm-dialog";
 import { DataTable, type Coluna } from "@/components/flic/data-table";
+import { Dinheiro } from "@/components/flic/dinheiro";
 import { Etiqueta } from "@/components/flic/etiqueta";
 import { NativeSelect } from "@/components/flic/form";
 import { notificar } from "@/components/flic/toast";
 import { Button } from "@/components/ui/button";
 import { ApiError, api, baixar } from "@/lib/api";
 import { data as fmtData, dataHora, tamanhoArquivo } from "@/lib/format";
-import { ROTULO_TIPO_ANEXO, type AnexoEmpresa, type Empresa, type Socio, type TipoAnexo } from "@/lib/tipos-nucleo";
+import { ROTULO_TIPO_ANEXO, type AnexoEmpresa, type Empresa, type EmpresaDetalhe, type Socio, type TipoAnexo } from "@/lib/tipos-nucleo";
 import { cnpjValido } from "@/lib/validacao";
 
 import { rotaAusente } from "./consultas";
@@ -74,6 +78,91 @@ const COLUNAS_SOCIOS: Coluna<Socio>[] = [
   { id: "qualif", titulo: "Qualificação", celula: (s) => s.qualificacao ?? "—" },
   { id: "entrada", titulo: "Entrada", celula: (s) => (s.data_entrada ? fmtData(s.data_entrada) : "—") },
 ];
+
+function LinhaReceita({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[140px_1fr] gap-3 px-3 py-2 text-sm">
+      <dt className="text-muted">{rotulo}</dt>
+      <dd className="min-w-0">{children}</dd>
+    </div>
+  );
+}
+
+const LIMITE_CNAES = 3;
+
+export function DadosReceita({ empresaId }: { empresaId: number }) {
+  const [todos, setTodos] = useState(false);
+  // mesma chave do detalhe do drawer de empresa: "Atualizar pela Receita" invalida e o bloco recarrega
+  const q = useQuery({
+    queryKey: ["nucleo", "empresas", "detalhe", empresaId],
+    queryFn: () => api.get<EmpresaDetalhe>(`/nucleo/empresas/${empresaId}`),
+    meta: { silencioso: true },
+    retry: false,
+  });
+  const e = q.data;
+  const secundarios = e?.cnaes_secundarios ?? [];
+  const visiveis = todos ? secundarios : secundarios.slice(0, LIMITE_CNAES);
+  const semDados =
+    !!e &&
+    !e.receita_consultada_em &&
+    !e.situacao_cadastral &&
+    !e.data_abertura &&
+    !e.natureza_juridica &&
+    !e.cnae_principal &&
+    secundarios.length === 0 &&
+    e.capital_social == null;
+
+  return (
+    <Secao titulo="DADOS DA RECEITA">
+      {q.isError ? (
+        <p className="text-sm text-muted">{mensagem(q.error, "Dados da Receita ainda indisponíveis neste servidor.")}</p>
+      ) : !e ? (
+        <p className="text-sm text-muted">Carregando…</p>
+      ) : semDados ? (
+        <p className="text-sm text-muted">Ainda não consultado. Use Atualizar pela Receita.</p>
+      ) : (
+        <>
+          <dl className="divide-y divide-line rounded-[10px] border border-line">
+            <LinhaReceita rotulo="Situação cadastral">
+              {e.situacao_cadastral ? (
+                <Etiqueta tom={e.situacao_cadastral.trim().toUpperCase() === "ATIVA" ? "green" : "amber"}>{e.situacao_cadastral}</Etiqueta>
+              ) : (
+                "—"
+              )}
+            </LinhaReceita>
+            <LinhaReceita rotulo="Abertura">
+              <span className="num">{fmtData(e.data_abertura)}</span>
+            </LinhaReceita>
+            <LinhaReceita rotulo="Natureza jurídica">{e.natureza_juridica || "—"}</LinhaReceita>
+            <LinhaReceita rotulo="CNAE principal">{e.cnae_principal || "—"}</LinhaReceita>
+            <LinhaReceita rotulo="CNAEs secundários">
+              {secundarios.length === 0 ? (
+                "—"
+              ) : (
+                <>
+                  <ul className="flex flex-col gap-1">
+                    {visiveis.map((c, i) => (
+                      <li key={`${i}-${c}`}>{c}</li>
+                    ))}
+                  </ul>
+                  {secundarios.length > LIMITE_CNAES && (
+                    <button type="button" className="mt-1 text-xs font-semibold text-primary hover:underline" onClick={() => setTodos((v) => !v)}>
+                      {todos ? "Mostrar menos" : `Ver todos (${secundarios.length})`}
+                    </button>
+                  )}
+                </>
+              )}
+            </LinhaReceita>
+            <LinhaReceita rotulo="Capital social">
+              <Dinheiro valor={e.capital_social} />
+            </LinhaReceita>
+          </dl>
+          <p className="text-xs text-muted">{e.receita_consultada_em ? `Consultado em ${dataHora(e.receita_consultada_em)}.` : "Data da consulta não registrada."}</p>
+        </>
+      )}
+    </Secao>
+  );
+}
 
 export function QuadroSocietario({
   empresaId,

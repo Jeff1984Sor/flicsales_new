@@ -48,6 +48,18 @@ class _EnderecoCampos(Entrada):
     uf: str | None = Field(default=None, max_length=2)
 
 
+class _ReceitaSaida(BaseModel):
+    """Dados da Receita Federal (migração 0004). Somente leitura: gravados por POST /empresas/{id}/cnpj/aplicar."""
+
+    cnae_principal: str | None = None
+    cnaes_secundarios: list[str] = []
+    natureza_juridica: str | None = None
+    capital_social: Decimal | None = None
+    situacao_cadastral: str | None = None
+    data_abertura: date | None = None
+    receita_consultada_em: datetime | None = None
+
+
 class _EnderecoSaida(BaseModel):
     cep: str | None = None
     logradouro: str | None = None
@@ -86,7 +98,7 @@ class EmpresaAtualizar(_EmpresaCampos):
     ativo: bool | None = None
 
 
-class EmpresaSaida(_EnderecoSaida, Saida):
+class EmpresaSaida(_EnderecoSaida, _ReceitaSaida, Saida):
     id: int
     nome: str
     documento: str | None
@@ -248,7 +260,7 @@ class FornecedorAtualizar(_FornecedorCampos):
     ativo: bool | None = None
 
 
-class FornecedorSaida(_EnderecoSaida):
+class FornecedorSaida(_EnderecoSaida, _ReceitaSaida):
     id: int
     nome: str
     documento: str | None

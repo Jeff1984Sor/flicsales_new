@@ -151,8 +151,8 @@ oficial manualmente.
   Fornecedor (`/nucleo/fornecedores`) também expõe e grava os 7 campos e propaga. Mesclar empresas propaga para os
   contatos movidos. A regra pura: `app/domain/cadastro.py` (`resolver_endereco_pessoa`, `propagar_endereco`,
   `validar_cnpj`, `validar_documento` (CNPJ ou CPF), `validar_cep`, `validar_uf`, `preencher_vazios`).
-- `empresa.documento` **não** passou a ser validado no POST/PATCH de empresa (dados antigos e CPF continuam aceitos);
-  a planilha valida (CNPJ 14 dígitos ou CPF 11, com dígito verificador) e grava formatado.
+- (Superado pela seção 4c: o POST/PATCH de empresa e fornecedor agora valida `documento` quando enviado.)
+  A planilha também valida (CNPJ 14 dígitos ou CPF 11, com dígito verificador) e grava formatado.
 - Aplicar CNPJ: preenche campo a campo só os vazios (`nome_fantasia, segmento, porte, telefone, email_financeiro` + os 7
   de endereço) e normaliza `documento`; o nome nunca muda. Auditoria: `empresa.alterar`, `empresa.socios`
   (antes→depois), `empresa_anexo.criar`, `pessoa.endereco_da_empresa`.
@@ -164,6 +164,26 @@ oficial manualmente.
   Números aceitam "1.234,56", "1234.56", "R$ 1.234,56"; datas DD/MM/AAAA ou AAAA-MM-DD; CSV também em cp1252.
   Auditoria por linha `importacao.<objeto>` (entidade do registro) + resumo `importacao.<objeto>` com entidade
   `importacao`. Empresa criada a partir da planilha de pessoas: `empresa.criar`.
+
+## 4c. Dados da Receita persistidos e validação de documento (backend — migração `0004_dados_receita`)
+
+- `empresa` ganha (somente leitura para a tela): `cnae_principal` String(300) ("7020-4/00 · Descrição"),
+  `cnaes_secundarios` JSON lista de str (padrão `[]`), `natureza_juridica` String(200), `capital_social`
+  Numeric(15,2) (sai como string decimal "10000.00"), `situacao_cadastral` String(40) ("ATIVA", "BAIXADA"…),
+  `data_abertura` Date (ISO), `receita_consultada_em` UtcDateTime (ISO com fuso).
+- Gravados **só** por `POST /api/nucleo/empresas/{id}/cnpj/aplicar`, que **sempre sobrescreve** esses 7 campos com a
+  consulta (ao contrário dos campos do formulário, que só são preenchidos se vazios); entram no diff da auditoria
+  `empresa.alterar`. Origem: `cnae_principal`, `cnaes_secundarios`, `natureza_juridica`, `capital_social` da consulta;
+  `situacao_cadastral` ← `situacao`; `data_abertura` ← `abertura`. Atenção: a consulta tem cache de 24 h.
+- Expostos em `EmpresaSaida`/`EmpresaDetalhe` e em `FornecedorSaida`. **Não** aceitos no POST/PATCH de empresa ou
+  fornecedor (422, `extra="forbid"`), não são colunas da planilha e não estão na lista branca da IA.
+- **Documento validado ao salvar** (POST/PATCH `/nucleo/empresas` e `/nucleo/fornecedores`): quando `documento` vem no
+  corpo, só CNPJ (14 dígitos) ou CPF (11) com dígito verificador; grava com máscara (`11.222.333/0001-81`,
+  `529.982.247-25`); vazio limpa. Inválido → 400 "CNPJ ou CPF inválido.". Mesmo documento (comparando dígitos) em
+  **outra empresa ativa** → 400 "Este CNPJ já está no cadastro da empresa “X” (#id). Abra esse cadastro em vez de
+  duplicar.". PATCH sem `documento` não toca dado antigo (mesmo inválido). Funções puras em `app/domain/cadastro.py`:
+  `validar_documento_cadastro`, `validar_documento_livre`, `formas_do_documento`. A empresa criada dentro da
+  oportunidade (`empresa_nome`) não recebe documento, então não há validação ali.
 
 ## 5. Telas (frontend)
 

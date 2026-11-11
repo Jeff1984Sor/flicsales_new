@@ -12,7 +12,7 @@ DECISÃO — NOME ÚNICO: `nome` é UNIQUE e `nome_chave` (minúsculo, sem acent
 sozinha por evento (app.domain.cadastro.chave_de_nome). Nome duplicado é recusado ("Já existe empresa com este nome").
 """
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -31,7 +31,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.db import Base, Timestamped
+from app.core.db import Base, Timestamped, UtcDateTime
 from app.domain.cadastro import PAPEIS_EMPRESA, chave_de_nome
 from app.modules.base import Dinheiro
 
@@ -79,6 +79,15 @@ class Empresa(EnderecoMixin, Base, Timestamped):
     categoria_padrao_id: Mapped[int | None] = mapped_column(ForeignKey("categoria.id"))
     condicao_habitual: Mapped[str | None] = mapped_column(String(200))
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    # dados da Receita (migração 0004): gravados só por POST /empresas/{id}/cnpj/aplicar (sempre sobrescreve);
+    # não são editáveis pelo formulário, pela planilha nem pela IA
+    cnae_principal: Mapped[str | None] = mapped_column(String(300))
+    cnaes_secundarios: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    natureza_juridica: Mapped[str | None] = mapped_column(String(200))
+    capital_social: Mapped[Decimal | None] = mapped_column(Dinheiro)
+    situacao_cadastral: Mapped[str | None] = mapped_column(String(40))
+    data_abertura: Mapped[date | None] = mapped_column(Date)
+    receita_consultada_em: Mapped[datetime | None] = mapped_column(UtcDateTime())
 
     @property
     def papeis(self) -> list[str]:

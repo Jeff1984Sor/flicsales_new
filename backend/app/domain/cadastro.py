@@ -100,6 +100,38 @@ def validar_documento(doc: str | None) -> str | None:
     raise RegraViolada("Documento inválido: informe um CNPJ (14 dígitos) ou CPF (11 dígitos).")
 
 
+def validar_documento_cadastro(doc: str | None) -> str | None:
+    """Documento enviado no cadastro de empresa/fornecedor: só CNPJ (14 dígitos) ou CPF (11 dígitos) com dígito
+    verificador válido, devolvido com máscara. Vazio → None. Qualquer outra coisa: "CNPJ ou CPF inválido."."""
+    d = so_digitos(doc)
+    if not d and not (doc or "").strip():
+        return None
+    if len(d) == 14 and cnpj_valido(d):
+        return formatar_cnpj(d)
+    if len(d) == 11 and cpf_valido(d):
+        return f"{d[:3]}.{d[3:6]}.{d[6:9]}-{d[9:]}"
+    raise RegraViolada("CNPJ ou CPF inválido.")
+
+
+def formas_do_documento(doc: str) -> tuple[str, ...]:
+    """As formas em que o mesmo documento pode estar gravado (com máscara e só dígitos), para procurar duplicidade."""
+    d = so_digitos(doc)
+    return tuple(dict.fromkeys((doc, d)))
+
+
+def validar_documento_livre(documento: str | None, outras: list[tuple[int, str, str | None]]) -> None:
+    """`outras` = (id, nome, documento) das OUTRAS empresas ativas. Mesmo documento (comparando só os dígitos) é
+    recusado, dizendo qual empresa já o usa."""
+    alvo = so_digitos(documento)
+    if not alvo:
+        return
+    for eid, nome, doc in outras:
+        if so_digitos(doc) == alvo:
+            tipo = "CNPJ" if len(alvo) == 14 else "CPF"
+            raise RegraViolada(f"Este {tipo} já está no cadastro da empresa “{nome}” (#{eid}). "
+                               "Abra esse cadastro em vez de duplicar.")
+
+
 def validar_cep(cep: str | None) -> str:
     """CEP com 8 dígitos → "00000-000"."""
     d = so_digitos(cep)

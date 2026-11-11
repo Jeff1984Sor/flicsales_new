@@ -81,6 +81,17 @@ export interface Empresa extends Endereco {
   oportunidades: number | null;
   titulos_receber: number | null;
   saldo_receber: string | null;
+  /** Dados da Receita (gravados em "Atualizar pela Receita"); ausentes até a primeira consulta. */
+  situacao_cadastral?: string | null;
+  /** data-de-dia "AAAA-MM-DD" */
+  data_abertura?: string | null;
+  natureza_juridica?: string | null;
+  cnae_principal?: string | null;
+  cnaes_secundarios?: string[] | null;
+  /** string decimal "10000.00" */
+  capital_social?: string | null;
+  /** instante da última consulta */
+  receita_consultada_em?: string | null;
 }
 
 export interface EmpresaDetalhe extends Empresa {
@@ -137,7 +148,7 @@ export interface Produto {
   ativo: boolean;
 }
 
-export interface Fornecedor {
+export interface Fornecedor extends Endereco {
   id: number;
   nome: string;
   documento: string | null;

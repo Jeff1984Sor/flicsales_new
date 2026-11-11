@@ -40,7 +40,7 @@ def test_criar_completa_com_papeis_e_campos(gestor, db):
     db.add(CampoCustom(nome="Origem", slug="origem", tipo="lista", objeto="empresa", opcoes=["Site", "Evento"]))
     db.commit()
     r = gestor.post("/nucleo/empresas", {
-        "nome": "Vértice Serviços", "documento": "12.345.678/0001-90", "nome_fantasia": "Vértice", "segmento": "Serviços",
+        "nome": "Vértice Serviços", "documento": "12.345.678/0001-95", "nome_fantasia": "Vértice", "segmento": "Serviços",
         "porte": "Média", "site": "https://vertice.demo", "email_financeiro": "fin@vertice.demo", "telefone": "11 9999",
         "endereco": "Rua A, 1", "papeis": ["cliente", "fornecedor"], "origem": "Site", "observacoes": "",
         "campos_custom": {"origem": "Site"}})

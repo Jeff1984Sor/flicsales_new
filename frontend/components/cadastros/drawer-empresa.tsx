@@ -33,9 +33,9 @@ import { useAuth } from "@/lib/auth";
 import { PAPEIS, type ConsultaCnpj, type EmpresaDetalhe, type EmpresaEntrada, type Papel, type ValoresCampos } from "@/lib/tipos-nucleo";
 import { cn } from "@/lib/utils";
 
-import { CampoCnpj, preencherVazios } from "./campo-cnpj";
+import { CampoCnpj, erroDeDocumento, erroDocumentoLocal, preencherVazios } from "./campo-cnpj";
 import { CamposPersonalizados } from "./campos-personalizados";
-import { AnexosEmpresa, QuadroSocietario, aplicarCnpj } from "./empresa-extras";
+import { AnexosEmpresa, DadosReceita, QuadroSocietario, aplicarCnpj } from "./empresa-extras";
 import { dadosParaIA, mesclarSugestoes } from "./consultas";
 import { BlocoEndereco, enderecoDe, type ValorEndereco } from "./endereco";
 import { EnriquecerIA } from "./enriquecer-ia";
@@ -138,6 +138,8 @@ function Formulario({
   onSalvar,
   onAbrirExistente,
   desabilitado,
+  erroDocumento,
+  onLimparErroDocumento,
 }: {
   inicial: FormEmpresa;
   empresa?: EmpresaDetalhe;
@@ -145,8 +147,12 @@ function Formulario({
   onSalvar: (dados: EmpresaEntrada) => void;
   onAbrirExistente: (id: number) => void;
   desabilitado?: boolean;
+  /** erro do salvar sobre o documento (inválido ou duplicado), mostrado no próprio campo */
+  erroDocumento?: string | null;
+  onLimparErroDocumento?: () => void;
 }) {
   const [f, setF] = useState(inicial);
+  const [erroDocLocal, setErroDocLocal] = useState<string | null>(null);
   const set = <K extends keyof FormEmpresa>(k: K, v: FormEmpresa[K]) => setF((x) => ({ ...x, [k]: v }));
   const campo = (k: "nome" | "nome_fantasia" | "segmento" | "porte" | "site" | "email_financeiro" | "telefone" | "origem") => ({
     value: f[k],
@@ -161,6 +167,9 @@ function Formulario({
       className="flex flex-col gap-4"
       onSubmit={(e) => {
         e.preventDefault();
+        const local = erroDocumentoLocal(f.documento);
+        setErroDocLocal(local);
+        if (local) return;
         const atual = paraEnvio(f) as EmpresaEntrada;
         onSalvar(empresa ? alterados<EmpresaEntrada>(paraEnvio(inicial) as EmpresaEntrada, atual) : atual);
       }}
@@ -178,7 +187,12 @@ function Formulario({
       </Field>
       <CampoCnpj
         valor={f.documento}
-        onChange={(v) => set("documento", v)}
+        onChange={(v) => {
+          set("documento", v);
+          setErroDocLocal(null);
+          onLimparErroDocumento?.();
+        }}
+        erroExterno={erroDocLocal ?? erroDocumento}
         disabled={desabilitado}
         automatico={!empresa}
         registroId={empresa?.id ?? null}
@@ -258,9 +272,11 @@ export function DrawerEmpresa({
   const [confirmar, setConfirmar] = useState(false);
   // "Abrir cadastro existente" (CNPJ já cadastrado): o drawer passa a mostrar aquela empresa
   const [trocadaPara, setTrocadaPara] = useState<number | null>(null);
+  const [erroDoc, setErroDoc] = useState<string | null>(null);
   const empresaId = trocadaPara ?? empresaIdProp;
   const onFechar = () => {
     setTrocadaPara(null);
+    setErroDoc(null);
     onFecharProp();
   };
   const formId = `f-empresa-${empresaId ?? "nova"}`;
@@ -288,6 +304,9 @@ export function DrawerEmpresa({
       }
       return criada;
     },
+    onMutate: () => setErroDoc(null),
+    // o toast padrão continua; aqui só leva a mensagem ao campo CNPJ
+    onError: (err) => setErroDoc(erroDeDocumento(err)),
     onSuccess: (r) => {
       invalidar("empresas");
       notificar.sucesso(empresaId == null ? "Empresa disponível nos três módulos" : "Cadastro e vínculos atualizados");
@@ -391,6 +410,8 @@ export function DrawerEmpresa({
             empresa={e}
             inicial={formDe(e, nomeInicial, papeisIniciais)}
             desabilitado={!podeEditar}
+            erroDocumento={erroDoc}
+            onLimparErroDocumento={() => setErroDoc(null)}
             onAbrirExistente={(id) => setTrocadaPara(id)}
             onSalvar={(d) => {
               if (empresaId != null && Object.keys(d).length === 0) {
@@ -403,6 +424,7 @@ export function DrawerEmpresa({
         )}
         {e && (
           <div className="mt-8 flex flex-col gap-6 border-t border-line pt-6">
+            <DadosReceita empresaId={e.id} />
             <QuadroSocietario empresaId={e.id} documento={e.documento} podeEditar={podeEditar} onAtualizado={() => setVersao((v) => v + 1)} />
             <AnexosEmpresa empresaId={e.id} podeEditar={podeEditar} />
           </div>

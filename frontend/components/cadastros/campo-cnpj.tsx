@@ -13,7 +13,11 @@
  *  - `registroId?: number | null`                         id do próprio registro (não se avisa duplicidade dele mesmo)
  *  - `onAbrirExistente?: (id: number) => void`            ação do aviso de duplicidade
  *  - `rotuloExistente?: string`                           padrão "Abrir cadastro existente"
+ *  - `erroExterno?: string | null`                       erro vindo do salvar (ex.: "CNPJ ou CPF inválido.", duplicado)
  *  - `rotulo?: string`  `disabled?: boolean`  `autoFocus?: boolean`
+ * Com 14 dígitos e dígito verificador errado o campo avisa na hora ("CNPJ inválido: confira os dígitos.").
+ * Utilitários: `erroDocumentoLocal(v)` (mesma checagem, para bloquear o envio) e `erroDeDocumento(e)` (erro 400 do
+ * salvar que fala do documento → mensagem para o campo; outros erros → null).
  */
 import { Loader2, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -21,7 +25,7 @@ import { useEffect, useRef, useState } from "react";
 import { Field } from "@/components/flic/form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import type { ConsultaCnpj } from "@/lib/tipos-nucleo";
 import { cnpjValido } from "@/lib/validacao";
 
@@ -44,6 +48,7 @@ export function CampoCnpj({
   rotulo = "CNPJ / CPF",
   disabled,
   autoFocus,
+  erroExterno,
 }: {
   valor: string;
   onChange: (v: string) => void;
@@ -55,6 +60,7 @@ export function CampoCnpj({
   rotulo?: string;
   disabled?: boolean;
   autoFocus?: boolean;
+  erroExterno?: string | null;
 }) {
   const [buscando, setBuscando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -93,7 +99,7 @@ export function CampoCnpj({
 
   return (
     <div className="flex flex-col gap-2">
-      <Field label={rotulo} erro={erro ?? undefined}>
+      <Field label={rotulo} erro={erro ?? erroExterno ?? undefined}>
         <div className="flex gap-2">
           <Input
             className="num h-9 flex-1"
@@ -101,13 +107,13 @@ export function CampoCnpj({
             value={valor}
             disabled={disabled}
             autoFocus={autoFocus}
-            aria-invalid={!!erro}
+            aria-invalid={!!(erro ?? erroExterno)}
             placeholder="00.000.000/0000-00"
             onChange={(e) => {
               const v = mascaraDocumento(e.target.value);
               onChange(v);
               const d = v.replace(/\D/g, "");
-              setErro(null);
+              setErro(d.length === 14 ? erroDocumentoLocal(d) : null);
               if (d.length < 14) {
                 ultimo.current = "";
                 setAviso(null);
@@ -168,4 +174,18 @@ export function preencherVazios<F extends object>(form: F, mapa: Partial<Record<
     }
   }
   return { form: out, preenchidos };
+}
+
+const MSG_CNPJ_LOCAL = "CNPJ inválido: confira os dígitos.";
+
+/** Checagem leve antes de enviar: só avisa quando há 14 dígitos com dígito verificador errado (CPF e dado antigo passam). */
+export function erroDocumentoLocal(v: string | null | undefined): string | null {
+  const d = (v ?? "").replace(/\D/g, "");
+  return d.length === 14 && !cnpjValido(d) ? MSG_CNPJ_LOCAL : null;
+}
+
+/** Erro 400 do salvar que diz respeito ao documento (inválido ou já cadastrado) → texto para o campo; senão null. */
+export function erroDeDocumento(e: unknown): string | null {
+  if (!(e instanceof ApiError) || e.status !== 400) return null;
+  return /cnpj|cpf|documento/i.test(e.message) ? e.message : null;
 }

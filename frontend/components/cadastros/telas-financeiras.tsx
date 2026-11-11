@@ -8,7 +8,8 @@
  *  - `TelaContas`       (+ `DrawerConta`)        saldo inicial pode ser negativo; com movimento, saldo e data-base travam
  * Todas as telas aceitam `idInicial?: number | null` (abre o drawer). Drawers: `aberto`, `onFechar`, `id: number | null`.
  * Toda lista tem "Importar planilha" (com `financeiro.cadastros.editar`) e todo drawer tem "✧ Enriquecer com IA";
- * o de fornecedor também tem "Buscar CNPJ".
+ * o de fornecedor também tem "Buscar CNPJ" (preenche também o endereço vazio), endereço com busca de CEP e, já
+ * cadastrado, "Dados da Receita", quadro societário e anexos.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { FolderTree, Landmark, LayoutGrid, Truck } from "lucide-react";
@@ -43,9 +44,10 @@ import {
   type Situacao,
 } from "@/lib/tipos-nucleo";
 
-import { CampoCnpj, preencherVazios } from "./campo-cnpj";
-import { AnexosEmpresa, QuadroSocietario, aplicarCnpj } from "./empresa-extras";
+import { CampoCnpj, erroDeDocumento, erroDocumentoLocal, preencherVazios } from "./campo-cnpj";
+import { AnexosEmpresa, DadosReceita, QuadroSocietario, aplicarCnpj } from "./empresa-extras";
 import { dadosParaIA, mesclarSugestoes } from "./consultas";
+import { BlocoEndereco, enderecoDe, type ValorEndereco } from "./endereco";
 import { EnriquecerIA } from "./enriquecer-ia";
 import { BotaoImportarPlanilha } from "./importar-planilha";
 import { CHIPS_SITUACAO, RodapeFormulario, SeletorCategoria, SeletorResponsavel, alterados, paraEnvio, txt, useInvalidarCadastros } from "./comum";
@@ -73,6 +75,7 @@ function useCadastro<T, F extends object>(
   aberto: boolean,
   onFechar: () => void,
   depoisDeCriar?: (criado: T) => Promise<void>,
+  onErro?: (e: unknown) => void,
 ) {
   const invalidar = useInvalidarCadastros();
   const registro = useQuery({ queryKey: ["nucleo", chave, "detalhe", id], queryFn: () => api.get<T>(`${rota}/${id}`), enabled: aberto && id != null });
@@ -83,6 +86,8 @@ function useCadastro<T, F extends object>(
       await depoisDeCriar?.(criado);
       return criado;
     },
+    // o toast padrão continua; `onErro` só complementa (ex.: erro do documento no próprio campo)
+    onError: (e) => onErro?.(e),
     onSuccess: () => {
       invalidar(chave);
       notificar.sucesso("Registro salvo");
@@ -99,7 +104,7 @@ function useCadastro<T, F extends object>(
 }
 
 // ================================================================================================= fornecedores
-interface FormFornecedor {
+interface FormFornecedor extends ValorEndereco {
   nome: string;
   documento: string;
   contato: string;
@@ -118,6 +123,13 @@ const ROTULOS_FORNECEDOR: Record<string, string> = {
   email: "E-mail",
   telefone: "Telefone",
   condicao_habitual: "Condição habitual",
+  cep: "CEP",
+  logradouro: "Logradouro",
+  numero: "Número",
+  complemento: "Complemento",
+  bairro: "Bairro",
+  cidade: "Cidade",
+  uf: "UF",
   observacoes: "Observações",
 };
 
@@ -125,6 +137,7 @@ export function DrawerFornecedor({ aberto, onFechar, id }: { aberto: boolean; on
   const { pode } = useAuth();
   const podeEditar = pode(PERM);
   const [versao, setVersao] = useState(0);
+  const [erroDoc, setErroDoc] = useState<string | null>(null);
   // fornecedor novo com CNPJ: traz quadro societário e comprovante logo depois de salvar
   const depoisDeCriar = async (criado: Fornecedor) => {
     if (!cnpjValido(criado.documento)) return;
@@ -139,22 +152,43 @@ export function DrawerFornecedor({ aberto, onFechar, id }: { aberto: boolean; on
     "fornecedores",
     id,
     aberto,
-    onFechar,
+    () => {
+      setErroDoc(null);
+      onFechar();
+    },
     depoisDeCriar,
+    (e) => setErroDoc(erroDeDocumento(e)),
   );
   const formId = `f-forn-${id ?? "novo"}`;
   return (
     <Drawer
       aberto={aberto}
-      onFechar={onFechar}
+      onFechar={() => {
+        setErroDoc(null);
+        onFechar();
+      }}
       rotulo={id == null ? undefined : "FORNECEDOR / CADASTRO ÚNICO"}
       titulo={id == null ? "Novo registro · Fornecedores" : `Editar · ${r?.nome ?? "…"}`}
       descricao={r ? `${r.titulos_pagar} título(s) a pagar · mesma empresa usada nos três módulos` : "Fornecedor é uma empresa do cadastro único, com papel fornecedor."}
       rodape={pronto && podeEditar ? <RodapeFormulario formId={formId} rotulo="Salvar registro" salvando={salvar.isPending} onCancelar={onFechar} /> : undefined}
     >
-      {pronto && <FormularioFornecedor key={`${id}-${r?.id}-${versao}`} r={r} formId={formId} desabilitado={!podeEditar} onEnviar={enviar} />}
+      {pronto && (
+        <FormularioFornecedor
+          key={`${id}-${r?.id}-${versao}`}
+          r={r}
+          formId={formId}
+          desabilitado={!podeEditar}
+          onEnviar={(i, a) => {
+            setErroDoc(null);
+            enviar(i, a);
+          }}
+          erroDocumento={erroDoc}
+          onLimparErroDocumento={() => setErroDoc(null)}
+        />
+      )}
       {r && (
         <div className="mt-8 flex flex-col gap-6 border-t border-line pt-6">
+          <DadosReceita empresaId={r.id} />
           <QuadroSocietario empresaId={r.id} documento={r.documento} podeEditar={podeEditar} onAtualizado={() => setVersao((v) => v + 1)} />
           <AnexosEmpresa empresaId={r.id} podeEditar={podeEditar} />
         </div>
@@ -168,11 +202,16 @@ function FormularioFornecedor({
   formId,
   desabilitado,
   onEnviar,
+  erroDocumento,
+  onLimparErroDocumento,
 }: {
   r?: Fornecedor;
   formId: string;
   desabilitado?: boolean;
   onEnviar: (inicial: FormFornecedor & { empresa_id?: number | null }, atual: FormFornecedor & { empresa_id?: number | null }) => void;
+  /** erro do salvar sobre o documento (inválido ou duplicado), mostrado no próprio campo */
+  erroDocumento?: string | null;
+  onLimparErroDocumento?: () => void;
 }) {
   const inicial: FormFornecedor = {
     nome: txt(r?.nome),
@@ -182,10 +221,12 @@ function FormularioFornecedor({
     telefone: txt(r?.telefone),
     categoria_padrao_id: r?.categoria_padrao_id ?? null,
     condicao_habitual: txt(r?.condicao_habitual),
+    ...enderecoDe(r),
     observacoes: txt(r?.observacoes),
     ativo: r?.ativo ?? true,
   };
   const [f, setF] = useState(inicial);
+  const [erroDocLocal, setErroDocLocal] = useState<string | null>(null);
   const [existente, setExistente] = useState<number | null>(null);
   const router = useRouter();
   const set = <K extends keyof FormFornecedor>(k: K, v: FormFornecedor[K]) => setF((x) => ({ ...x, [k]: v }));
@@ -201,6 +242,9 @@ function FormularioFornecedor({
       className="flex flex-col gap-4"
       onSubmit={(e) => {
         e.preventDefault();
+        const local = existente ? null : erroDocumentoLocal(f.documento);
+        setErroDocLocal(local);
+        if (local) return;
         const { ativo, ...resto } = f;
         if (r) onEnviar(inicial, { ...resto, ativo });
         else if (existente) {
@@ -232,7 +276,12 @@ function FormularioFornecedor({
         <CampoCnpj
           rotulo="CPF / CNPJ"
           valor={f.documento}
-          onChange={(v) => set("documento", v)}
+          onChange={(v) => {
+            set("documento", v);
+            setErroDocLocal(null);
+            onLimparErroDocumento?.();
+          }}
+          erroExterno={erroDocLocal ?? erroDocumento}
           disabled={desabilitado}
           automatico={!r}
           registroId={r?.id ?? null}
@@ -246,6 +295,13 @@ function FormularioFornecedor({
               nome: [ROTULOS_FORNECEDOR.nome, c.nome],
               telefone: [ROTULOS_FORNECEDOR.telefone, c.telefone],
               email: [ROTULOS_FORNECEDOR.email, c.email_financeiro],
+              cep: [ROTULOS_FORNECEDOR.cep, c.cep],
+              logradouro: [ROTULOS_FORNECEDOR.logradouro, c.logradouro],
+              numero: [ROTULOS_FORNECEDOR.numero, c.numero],
+              complemento: [ROTULOS_FORNECEDOR.complemento, c.complemento],
+              bairro: [ROTULOS_FORNECEDOR.bairro, c.bairro],
+              cidade: [ROTULOS_FORNECEDOR.cidade, c.cidade],
+              uf: [ROTULOS_FORNECEDOR.uf, c.uf],
             });
             setF(form);
             return preenchidos;
@@ -274,6 +330,12 @@ function FormularioFornecedor({
           </Field>
         )}
       </div>
+      <BlocoEndereco
+        valor={f}
+        disabled={desabilitado}
+        onChange={(p) => setF((x) => ({ ...x, ...p }))}
+        dica={existente ? "Preenchido aqui, substitui o endereço da empresa escolhida." : "Contatos que usam o endereço da empresa recebem a mudança."}
+      />
       <Field label="Observações">
         <Textarea value={f.observacoes} disabled={desabilitado} onChange={(e) => set("observacoes", e.target.value)} />
       </Field>
