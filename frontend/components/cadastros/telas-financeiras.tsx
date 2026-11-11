@@ -108,7 +108,6 @@ interface FormFornecedor extends ValorEndereco {
   nome: string;
   documento: string;
   contato: string;
-  email: string;
   telefone: string;
   categoria_padrao_id: number | null;
   condicao_habitual: string;
@@ -120,7 +119,6 @@ const ROTULOS_FORNECEDOR: Record<string, string> = {
   nome: "Razão social / nome",
   documento: "CPF / CNPJ",
   contato: "Contato",
-  email: "E-mail",
   telefone: "Telefone",
   condicao_habitual: "Condição habitual",
   cep: "CEP",
@@ -167,6 +165,7 @@ export function DrawerFornecedor({ aberto, onFechar, id }: { aberto: boolean; on
         setErroDoc(null);
         onFechar();
       }}
+      largura="metade"
       rotulo={id == null ? undefined : "FORNECEDOR / CADASTRO ÚNICO"}
       titulo={id == null ? "Novo registro · Fornecedores" : `Editar · ${r?.nome ?? "…"}`}
       descricao={r ? `${r.titulos_pagar} título(s) a pagar · mesma empresa usada nos três módulos` : "Fornecedor é uma empresa do cadastro único, com papel fornecedor."}
@@ -217,7 +216,6 @@ function FormularioFornecedor({
     nome: txt(r?.nome),
     documento: txt(r?.documento),
     contato: txt(r?.contato),
-    email: txt(r?.email),
     telefone: txt(r?.telefone),
     categoria_padrao_id: r?.categoria_padrao_id ?? null,
     condicao_habitual: txt(r?.condicao_habitual),
@@ -230,7 +228,7 @@ function FormularioFornecedor({
   const [existente, setExistente] = useState<number | null>(null);
   const router = useRouter();
   const set = <K extends keyof FormFornecedor>(k: K, v: FormFornecedor[K]) => setF((x) => ({ ...x, [k]: v }));
-  const t = (k: "nome" | "contato" | "email" | "telefone" | "condicao_habitual") => ({
+  const t = (k: "nome" | "contato" | "telefone" | "condicao_habitual") => ({
     value: f[k],
     disabled: desabilitado,
     className: "h-9",
@@ -294,7 +292,6 @@ function FormularioFornecedor({
             const { form, preenchidos } = preencherVazios(f, {
               nome: [ROTULOS_FORNECEDOR.nome, c.nome],
               telefone: [ROTULOS_FORNECEDOR.telefone, c.telefone],
-              email: [ROTULOS_FORNECEDOR.email, c.email_financeiro],
               cep: [ROTULOS_FORNECEDOR.cep, c.cep],
               logradouro: [ROTULOS_FORNECEDOR.logradouro, c.logradouro],
               numero: [ROTULOS_FORNECEDOR.numero, c.numero],
@@ -311,9 +308,6 @@ function FormularioFornecedor({
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Contato">
           <Input {...t("contato")} />
-        </Field>
-        <Field label="E-mail">
-          <Input {...t("email")} type="email" />
         </Field>
         <Field label="Telefone">
           <Input {...t("telefone")} />
@@ -442,7 +436,7 @@ export function TelaFornecedores({ idInicial = null }: { idInicial?: number | nu
         icone={Truck}
         colunas={[
           { id: "nome", titulo: "Razão social / nome", celula: (f) => <><strong className="text-[13px]">{f.nome}</strong> {inativo(f.ativo)}<p className="text-muted">{f.documento ?? "—"}</p></> },
-          { id: "contato", titulo: "Contato", celula: (f) => <>{f.contato ?? "—"}<p className="text-muted">{[f.email, f.telefone].filter(Boolean).join(" · ")}</p></> },
+          { id: "contato", titulo: "Contato", celula: (f) => <>{f.contato ?? "—"}<p className="text-muted">{f.telefone}</p></> },
           { id: "cat", titulo: "Categoria padrão", celula: (f) => f.categoria_padrao_nome ?? "—" },
           { id: "cond", titulo: "Condição habitual", celula: (f) => f.condicao_habitual ?? "—" },
           { id: "tit", titulo: "A pagar", alinhar: "direita", celula: (f) => <span className="num">{f.titulos_pagar}</span> },
@@ -453,7 +447,6 @@ export function TelaFornecedores({ idInicial = null }: { idInicial?: number | nu
             { titulo: "Razão social / nome", valor: (f) => f.nome },
             { titulo: "CPF / CNPJ", valor: (f) => f.documento },
             { titulo: "Contato", valor: (f) => f.contato },
-            { titulo: "E-mail", valor: (f) => f.email },
             { titulo: "Telefone", valor: (f) => f.telefone },
             { titulo: "Categoria padrão", valor: (f) => f.categoria_padrao_nome },
             { titulo: "Condição habitual", valor: (f) => f.condicao_habitual },

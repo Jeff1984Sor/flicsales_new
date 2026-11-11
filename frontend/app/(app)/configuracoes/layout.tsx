@@ -10,13 +10,12 @@ import { PageHeader } from "@/components/flic/page-header";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
-// abas: Usuários · Perfis de acesso · E-mail (Identidade e IA abrem pelos cards da Administração)
+// abas: Usuários · Perfis de acesso · E-mail (Identidade abre pelo card da Administração; a IA mora no módulo Assistente)
 const ABAS = TELAS_EXTRAS.filter((i) => i.grupo === "Configurações" && i.href !== "/configuracoes");
 // telas de configuração fora das abas: cabeçalho próprio com "← Administração"
 const AVULSAS = TELAS_EXTRAS.filter((i) => i.grupo === "Administração" && i.href.startsWith("/configuracoes/"));
 const DESCRICAO_AVULSA: Record<string, string> = {
   "/configuracoes/identidade": "Nome, logo, cores e assinatura padrão de e-mail da organização.",
-  "/configuracoes/ia": "Provedor, modelo e chave cifrada. Sem IA, o produto segue útil.",
 };
 // telas que tratam a edição item a item (listas com filtros e diálogos); nas demais o formulário inteiro fica só leitura
 const EDICAO_PROPRIA = ["/configuracoes/usuarios", "/configuracoes/perfis"];
@@ -37,14 +36,14 @@ export default function ConfiguracoesLayout({ children }: { children: React.Reac
   // sem nenhuma aba, o bloqueio da página (AppShell) já mostra "Sem acesso"
   return (
     <div>
+      {podeVer("nucleo.administracao") && (
+        <Link href="/nucleo/administracao" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted transition hover:text-primary">
+          <ArrowLeft className="size-4" />
+          Administração
+        </Link>
+      )}
       {avulsa ? (
         <>
-          {podeVer("nucleo.administracao") && (
-            <Link href="/nucleo/administracao" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted transition hover:text-primary">
-              <ArrowLeft className="size-4" />
-              Administração
-            </Link>
-          )}
           <PageHeader titulo={avulsa.label} descricao={DESCRICAO_AVULSA[avulsa.href]} icone={avulsa.icone} semIA />
         </>
       ) : (

@@ -2,7 +2,8 @@
 
 /**
  * AppShell — casca do FlicSales OS, fiel ao protótipo:
- *  - Topo branco 73px: logo `flic`+`sales` `/ OS` · abas Comercial · Financeiro · Núcleo · busca global · ✧ IA unificada · avatar
+ *  - Topo branco 73px: logo `flic`+`sales` `/ OS` · abas Comercial · Financeiro · Núcleo · Assistente · busca global ·
+ *    ✧ IA unificada · avatar
  *  - Lateral escura 232px: `WORKSPACE / <MÓDULO>`, grupos e itens (ativo azul com marcador turquesa), rodapé com lema,
  *    "● Ambiente de demonstração" (fora de prod)
  *  - Breadcrumb `Workspace / Módulo / Tela` + data de hoje
@@ -316,7 +317,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     padraoNovo.current = () => {
       if (moduloId === "comercial") {
         if (pode("comercial.oportunidades.editar")) router.push("/comercial/oportunidades?novo=1");
-      } else if (pode("financeiro.titulos.editar")) {
+      } else if (moduloId !== "assistente" && pode("financeiro.titulos.editar")) {
         router.push("/financeiro/receber?novo=1");
       }
     };

@@ -28,7 +28,7 @@ import { useAuth } from "@/lib/auth";
 import type { Pagina } from "@/lib/types";
 import { PAPEIS, ROTULO_PAPEL, type Empresa, type Papel, type Situacao } from "@/lib/tipos-nucleo";
 
-import { CHIPS_SITUACAO } from "./comum";
+import { AcoesLista, CHIPS_SITUACAO } from "./comum";
 import { DrawerEmpresa } from "./drawer-empresa";
 import { DrawerPessoa } from "./drawer-pessoa";
 import { BotaoImportarPlanilha } from "./importar-planilha";
@@ -122,6 +122,12 @@ export function TelaEmpresas({ embutida, papelPadrao = "", idInicial = null }: {
           acao={podeEditar && <Button onClick={() => setNova(true)}>+ Empresa</Button>}
         />
       )}
+      {embutida && (
+        <AcoesLista>
+          <BotaoImportarPlanilha objeto="empresas" />
+          {podeEditar && <Button onClick={() => setNova(true)}>+ Empresa</Button>}
+        </AcoesLista>
+      )}
       <BarraFiltros
         busca={{ valor: q, onChange: (v) => (setQ(v), setPagina(1)), placeholder: "Filtrar por nome, documento ou segmento" }}
         chips={{ opcoes: CHIPS_SITUACAO, valor: situacao, onChange: (v) => (setSituacao(v as Situacao), setPagina(1)) }}
@@ -135,7 +141,6 @@ export function TelaEmpresas({ embutida, papelPadrao = "", idInicial = null }: {
             { titulo: "Papéis", valor: (e) => e.papeis.map((p) => ROTULO_PAPEL[p]).join(" / ") },
             { titulo: "Origem", valor: (e) => e.origem },
             { titulo: "Responsável", valor: (e) => e.responsavel_nome },
-            { titulo: "E-mail financeiro", valor: (e) => e.email_financeiro },
             { titulo: "Telefone", valor: (e) => e.telefone },
             { titulo: "Oportunidades", valor: (e) => e.oportunidades },
             { titulo: "Recebíveis", valor: (e) => e.titulos_receber },
@@ -154,7 +159,6 @@ export function TelaEmpresas({ embutida, papelPadrao = "", idInicial = null }: {
             ))}
           </NativeSelect>
         </div>
-        {embutida && <BotaoImportarPlanilha objeto="empresas" />}
       </BarraFiltros>
       <DataTable
         colunas={colunas}

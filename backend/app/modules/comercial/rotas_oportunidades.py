@@ -45,6 +45,7 @@ from app.modules.comercial.schemas import (
     RecebivelOut,
 )
 from app.modules.financeiro.servico import preparar_recebiveis_do_ganho, recebiveis_da_oportunidade
+from app.modules.nucleo import servico as nucleo
 from app.modules.nucleo.models import CampoCustom, Empresa, Pessoa, Produto
 
 router = APIRouter(tags=["comercial · oportunidades"])
@@ -160,6 +161,7 @@ def opcoes(ctx: Ctx):
                      INTERESSE_PADRAO)
     ops = db.scalars(ctx.filtrar_meus(select(Oportunidade), Oportunidade.responsavel_id)
                      .order_by(Oportunidade.titulo))
+    ordem_etapa = dict(db.execute(select(Etapa.id, Etapa.ordem)).all())
     return OpcoesComerciais(
         empresas=[OpcaoSimples(id=i, nome=n) for i, n in db.execute(
             select(Empresa.id, Empresa.nome).where(Empresa.ativo.is_(True)).order_by(Empresa.nome))],
@@ -170,7 +172,9 @@ def opcoes(ctx: Ctx):
         oportunidades=[OpcaoOportunidade(id=o.id, nome=o.titulo, empresa_id=o.empresa_id, resultado=o.resultado)
                        for o in ops],
         funis=[_funil_out(db, f) for f in db.scalars(select(Funil).where(Funil.ativo.is_(True)).order_by(Funil.id))],
-        campos=[OpcaoCampo(id=c.id, nome=c.nome, slug=c.slug, tipo=c.tipo, objeto=c.objeto, opcoes=c.opcoes or [])
+        campos=[OpcaoCampo(id=c.id, nome=c.nome, slug=c.slug, tipo=c.tipo, objeto=c.objeto, opcoes=c.opcoes or [],
+                           exibir_funil_id=c.exibir_funil_id, exibir_etapa_id=c.exibir_etapa_id,
+                           exibir_etapa_ordem=ordem_etapa.get(c.exibir_etapa_id))
                 for c in campos],
         condicoes_ganho=list(CONDICOES),
         interesse=list(interesse),
@@ -232,6 +236,8 @@ def _campos(op_campos: dict | None, campos: dict | None, interesse: str | None, 
 @router.post("/oportunidades", response_model=OportunidadeOut, status_code=201)
 def criar(dados: OportunidadeCriar, ctx: Ctx):
     db = ctx.db
+    # campos padrões obrigatórios configurados em Núcleo › Campos de dados
+    nucleo.validar_campos_padrao(db, "oportunidade", dados.model_dump(exclude_unset=True), criando=True)
     funil = db.get(Funil, dados.funil_id)
     if funil is None or not funil.ativo:
         raise RegraViolada("Funil não encontrado.")
@@ -287,6 +293,7 @@ def atualizar(op_id: int, dados: OportunidadeAtualizar, ctx: Ctx):
     op = sv.obter_oportunidade(ctx, op_id)
     antes = audit.snapshot(op)
     d = dados.model_dump(exclude_unset=True)
+    nucleo.validar_campos_padrao(db, "oportunidade", d, criando=False)
     proxima_antes = (op.proxima_acao, op.proxima_acao_prazo)
 
     if "valor_unico" in d or "valor_recorrente_mensal" in d:

@@ -1,16 +1,18 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, ImageUp, Loader2, RotateCcw, Save, Search } from "lucide-react";
+import { Bell, ImageUp, Loader2, RotateCcw, Save, Search, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { toast } from "sonner";
 
+import { rotaAusente } from "@/components/cadastros/consultas";
 import { Field } from "@/components/flic/form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { useFoto } from "@/hooks/use-foto";
 import { api } from "@/lib/api";
 import { resolverLogo, useBrand } from "@/lib/brand";
 import { iniciais } from "@/lib/format";
@@ -81,10 +83,96 @@ function Preview({ nome, cor, logo }: { nome: string; cor: string; logo: string 
   );
 }
 
+/** Saída da identidade com a imagem da assinatura geral (campo novo; ausente enquanto o backend não publicar). */
+type IdentidadeComImagem = IdentidadeOut & { assinatura_imagem_url?: string | null };
+
+const MSG_IMAGEM_INDISPONIVEL = "Imagem da assinatura ainda indisponível no servidor. Tente mais tarde.";
+
+function erroImagem(e: unknown) {
+  toast.error(rotaAusente(e) ? MSG_IMAGEM_INDISPONIVEL : e instanceof Error ? e.message : "Não foi possível salvar a imagem.");
+}
+
+/** Imagem da assinatura geral (PNG/JPG até 1 MB): vai nos e-mails que usam a assinatura padrão da organização. */
+function ImagemAssinaturaGeral({ url, texto }: { url: string | null; texto: string }) {
+  const qc = useQueryClient();
+  const imagem = useFoto(url);
+  const atualizar = () => {
+    qc.invalidateQueries({ queryKey: ["identidade"] });
+  };
+  const enviar = useMutation({
+    mutationFn: (f: File) => {
+      const fd = new FormData();
+      fd.append("arquivo", f);
+      return api.post<IdentidadeComImagem>("/config/identidade/assinatura-imagem", fd);
+    },
+    meta: { silencioso: true },
+    onSuccess: () => {
+      atualizar();
+      toast.success("Imagem da assinatura atualizada");
+    },
+    onError: erroImagem,
+  });
+  const remover = useMutation({
+    mutationFn: () => api.del<IdentidadeComImagem>("/config/identidade/assinatura-imagem"),
+    meta: { silencioso: true },
+    onSuccess: () => {
+      atualizar();
+      toast.success("Imagem da assinatura removida");
+    },
+    onError: erroImagem,
+  });
+  const dz = useDropzone({
+    multiple: false,
+    noClick: true,
+    noKeyboard: true,
+    accept: { "image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"] },
+    maxSize: 1024 * 1024,
+    onDrop: (f) => f[0] && enviar.mutate(f[0]),
+    onDropRejected: () => toast.error("Use PNG ou JPG de até 1 MB."),
+  });
+  const temImagem = !!url;
+  return (
+    <div className="space-y-3">
+      <div {...dz.getRootProps()} className="flex flex-wrap items-center gap-2">
+        <input {...dz.getInputProps()} />
+        <Button type="button" variant="outline" onClick={dz.open} disabled={enviar.isPending}>
+          {enviar.isPending ? <Loader2 className="animate-spin" /> : <ImageUp />} {temImagem ? "Trocar imagem" : "Enviar imagem"}
+        </Button>
+        {temImagem && (
+          <Button type="button" variant="ghost" className="text-danger-ink" onClick={() => remover.mutate()} disabled={remover.isPending}>
+            <Trash2 /> Remover imagem
+          </Button>
+        )}
+        <span className="text-xs text-muted">PNG ou JPG até 1 MB (logo, selo ou assinatura escaneada).</span>
+      </div>
+      <div>
+        <span className="eyebrow">PRÉVIA DA ASSINATURA PADRÃO</span>
+        <div className="mt-2 rounded-[10px] border border-line bg-subtle/40 p-4 text-sm">
+          {!texto.trim() && !temImagem ? (
+            <p className="text-muted">Sem assinatura padrão: os e-mails saem só com o texto da mensagem.</p>
+          ) : (
+            <>
+              <p className="text-muted">—</p>
+              {texto.trim() && <p className="whitespace-pre-line">{texto}</p>}
+              {temImagem &&
+                (imagem ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={imagem} alt="Imagem da assinatura geral" className="mt-3 max-h-24 max-w-[260px] object-contain" />
+                ) : (
+                  <p className="mt-3 text-xs text-muted">Carregando imagem…</p>
+                ))}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function IdentidadePage() {
   const qc = useQueryClient();
   const brand = useBrand();
-  const q = useQuery({ queryKey: ["identidade"], queryFn: () => api.get<IdentidadeOut>("/config/identidade") });
+  const q = useQuery({ queryKey: ["identidade"], queryFn: () => api.get<IdentidadeComImagem>("/config/identidade") });
   const [nome, setNome] = useState("");
   const [cor, setCor] = useState("#7C8FFF");
   const [usarCor, setUsarCor] = useState(false);
@@ -237,6 +325,9 @@ export default function IdentidadePage() {
           </Field>
           <Field label="Assinatura padrão (quando o usuário não tem a sua)" dica="Vai no fim dos e-mails do sistema e dos usuários que não cadastraram a própria em Minha conta.">
             <Textarea rows={4} value={assinatura} onChange={(e) => setAssinatura(e.target.value)} placeholder={"Atenciosamente,\nEquipe comercial"} />
+          </Field>
+          <Field label="Imagem da assinatura geral" dica="Vai junto da assinatura padrão, como a imagem que cada usuário pode cadastrar em Minha conta.">
+            <ImagemAssinaturaGeral url={q.data?.assinatura_imagem_url ?? null} texto={assinatura} />
           </Field>
           <div className="flex justify-end gap-2 border-t pt-4">
             <Button

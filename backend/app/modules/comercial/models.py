@@ -224,11 +224,15 @@ class ModeloComunicacao(Base, Timestamped):
     __table_args__ = (
         CheckConstraint("canal IN ('email', 'whatsapp', 'ligacao', 'reuniao')", name="canal"),
         CheckConstraint("status IN ('rascunho', 'revisado')", name="status"),
+        CheckConstraint("classificacao IN ('comercial', 'financeiro', 'geral')", name="classificacao"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     nome: Mapped[str] = mapped_column(String(150))
     canal: Mapped[str] = mapped_column(String(10))
+    # migração 0006 (app.domain.modelos_comunicacao): quem usa o modelo. Comercial lista comercial+geral; Financeiro
+    # (cobranças) lista financeiro+geral; automações listam todos.
+    classificacao: Mapped[str] = mapped_column(String(12), default="comercial", server_default="comercial")
     finalidade: Mapped[str] = mapped_column(String(20))  # prospeccao | follow_up | proposta | cobranca | renovacao
     assunto: Mapped[str | None] = mapped_column(String(200))
     conteudo: Mapped[str] = mapped_column(Text)

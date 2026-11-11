@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * TelaPessoas — "Pessoas e contatos": lista com busca (nome, e-mail, cargo, empresa), situação, Exportar CSV e drawer.
+ * TelaPessoas — "Pessoas e contatos": lista (nome, cargo, empresa, e-mail/telefone principais) com busca, situação,
+ * Exportar CSV e drawer.
  * Props: `embutida?: boolean` (sem cabeçalho) · `idInicial?: number | null` (abre o drawer; ?id= da busca global).
  */
 import { useQuery } from "@tanstack/react-query";
@@ -19,7 +20,7 @@ import { useAuth } from "@/lib/auth";
 import type { Pagina } from "@/lib/types";
 import { ROTULO_BASE_LEGAL, ROTULO_CANAL, ROTULO_PERMISSAO, type Pessoa, type Situacao } from "@/lib/tipos-nucleo";
 
-import { CHIPS_SITUACAO } from "./comum";
+import { AcoesLista, CHIPS_SITUACAO } from "./comum";
 import { DrawerPessoa } from "./drawer-pessoa";
 import { BotaoImportarPlanilha } from "./importar-planilha";
 
@@ -47,12 +48,24 @@ export function TelaPessoas({ embutida, idInicial = null }: { embutida?: boolean
       celula: (p) => (
         <>
           <strong className="text-[13px]">{p.nome}</strong> {!p.ativo && <Etiqueta tom="amber">Inativo</Etiqueta>}
-          <p className="text-muted">{p.cargo ?? "—"}</p>
         </>
       ),
     },
+    { id: "cargo", titulo: "Cargo", celula: (p) => p.cargo ?? "—" },
     { id: "empresa", titulo: "Empresa", celula: (p) => p.empresa_nome ?? <span className="text-muted">Sem empresa vinculada</span> },
-    { id: "contato", titulo: "E-mail / telefone", celula: (p) => [p.email, p.telefone].filter(Boolean).join(" · ") || "—" },
+    {
+      id: "contato",
+      titulo: "E-mail / telefone",
+      celula: (p) => {
+        const extras = (p.emails ?? []).filter((e) => !e.principal).length + (p.telefones ?? []).filter((t) => !t.principal).length;
+        return (
+          <>
+            {[p.email, p.telefone].filter(Boolean).join(" · ") || "—"}
+            {extras > 0 && <p className="text-muted">+{extras} contato(s)</p>}
+          </>
+        );
+      },
+    },
     { id: "canal", titulo: "Canal preferido", celula: (p) => (p.canal_preferido ? ROTULO_CANAL[p.canal_preferido] : "—") },
     {
       id: "lgpd",
@@ -79,6 +92,12 @@ export function TelaPessoas({ embutida, idInicial = null }: { embutida?: boolean
           acao={podeEditar && <Button onClick={() => setNova(true)}>+ Novo registro</Button>}
         />
       )}
+      {embutida && (
+        <AcoesLista>
+          <BotaoImportarPlanilha objeto="pessoas" />
+          {podeEditar && <Button onClick={() => setNova(true)}>+ Pessoa</Button>}
+        </AcoesLista>
+      )}
       <BarraFiltros
         busca={{ valor: q, onChange: (v) => (setQ(v), setPagina(1)), placeholder: "Filtrar registros desta tela" }}
         chips={{ opcoes: CHIPS_SITUACAO, valor: situacao, onChange: (v) => (setSituacao(v as Situacao), setPagina(1)) }}
@@ -91,6 +110,8 @@ export function TelaPessoas({ embutida, idInicial = null }: { embutida?: boolean
             { titulo: "Cargo / papel na compra", valor: (p) => p.cargo },
             { titulo: "E-mail", valor: (p) => p.email },
             { titulo: "Telefone / WhatsApp", valor: (p) => p.telefone },
+            { titulo: "E-mails adicionais", valor: (p) => (p.emails ?? []).filter((e) => !e.principal).map((e) => e.email).join("; ") },
+            { titulo: "Telefones adicionais", valor: (p) => (p.telefones ?? []).filter((t) => !t.principal).map((t) => t.numero).join("; ") },
             { titulo: "Responsável", valor: (p) => p.responsavel_nome },
             { titulo: "Canal preferido", valor: (p) => (p.canal_preferido ? ROTULO_CANAL[p.canal_preferido] : "") },
             { titulo: "Base legal", valor: (p) => (p.base_legal ? (ROTULO_BASE_LEGAL[p.base_legal] ?? p.base_legal) : "") },
@@ -101,8 +122,6 @@ export function TelaPessoas({ embutida, idInicial = null }: { embutida?: boolean
           ],
         }}
       >
-        {embutida && <BotaoImportarPlanilha objeto="pessoas" />}
-        {embutida && podeEditar && <Button onClick={() => setNova(true)}>+ Pessoa</Button>}
       </BarraFiltros>
       <DataTable
         colunas={colunas}

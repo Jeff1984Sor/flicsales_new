@@ -29,9 +29,11 @@ from sqlalchemy import (
     UniqueConstraint,
     event,
 )
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base, Timestamped, UtcDateTime
+from app.domain import contatos
 from app.domain.cadastro import PAPEIS_EMPRESA, chave_de_nome
 from app.modules.base import Dinheiro
 
@@ -124,11 +126,39 @@ class Pessoa(EnderecoMixin, Base, Timestamped):
     # LGPD (migração 0005): app.domain.cadastro.BASES_LEGAIS / PERMISSOES_COMUNICACAO ("opt_out" é exclusivo)
     base_legal: Mapped[str | None] = mapped_column(String(30))
     permissoes_comunicacao: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    # vários contatos (migração 0006): app.domain.contatos. `email`/`telefone` acima ESPELHAM o principal.
+    telefones: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, server_default="[]")
+    emails: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, server_default="[]")
+
+
+def _mudou(alvo: Any, atributo: str, inserindo: bool) -> bool:
+    if inserindo:
+        return bool(getattr(alvo, atributo))
+    return sa_inspect(alvo).attrs[atributo].history.has_changes()
+
+
+@event.listens_for(Pessoa, "before_insert")
+@event.listens_for(Pessoa, "before_update")
+def _espelhar_principal(_mapper, _conn, alvo: Pessoa) -> None:
+    """Mantém `email`/`telefone` = principal das listas, em qualquer caminho de gravação (rota, planilha, fornecedor,
+    comercial). Mudou a lista → o espelho acompanha; mudou só o campo antigo → ele vira o principal da lista."""
+    inserindo = alvo.id is None
+    for lista, simples, chave, tipo in (("emails", "email", "email", "comercial"),
+                                         ("telefones", "telefone", "numero", "celular")):
+        if _mudou(alvo, lista, inserindo):
+            setattr(alvo, simples, contatos.principal_de(getattr(alvo, lista), chave))
+        elif _mudou(alvo, simples, inserindo) or (getattr(alvo, simples) and not getattr(alvo, lista)):
+            setattr(alvo, lista, contatos.aplicar_principal(getattr(alvo, lista), getattr(alvo, simples), chave,
+                                                            tipo_padrao=tipo))
 
 
 class Produto(Base, Timestamped):
     __tablename__ = "produto"
-    __table_args__ = (CheckConstraint("tipo IN ('servico', 'produto')", name="tipo"),)
+    __table_args__ = (
+        CheckConstraint("tipo IN ('servico', 'produto')", name="tipo"),
+        CheckConstraint("desconto_tipo IN ('percentual', 'valor')", name="desconto_tipo"),
+        CheckConstraint("frequencia IN ('diaria', 'semanal', 'mensal', 'semestral', 'anual')", name="frequencia"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     nome: Mapped[str] = mapped_column(String(200), unique=True)
@@ -139,6 +169,13 @@ class Produto(Base, Timestamped):
     recorrente: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     descricao: Mapped[str | None] = mapped_column(Text)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    # migração 0006 (app.domain.produto): desconto padrão e recorrência
+    desconto_tipo: Mapped[str | None] = mapped_column(String(10))  # percentual | valor
+    desconto_valor: Mapped[Decimal | None] = mapped_column(Dinheiro)
+    frequencia: Mapped[str | None] = mapped_column(String(10))  # diaria | semanal | mensal | semestral | anual
+    intervalo: Mapped[int | None] = mapped_column(Integer)  # a cada N (semestral = 1)
+    dias_semana: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")  # seg…dom (semanal)
+    campos_custom: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default="{}")
 
 
 class Categoria(Base, Timestamped):
@@ -188,7 +225,7 @@ class CampoCustom(Base, Timestamped):
     __table_args__ = (
         CheckConstraint("tipo IN ('texto', 'numero', 'moeda', 'data', 'sim_nao', 'lista', 'multipla', 'link')",
                         name="tipo"),
-        CheckConstraint("objeto IN ('empresa', 'pessoa', 'oportunidade')", name="objeto"),
+        CheckConstraint("objeto IN ('empresa', 'pessoa', 'oportunidade', 'produto')", name="objeto"),
         UniqueConstraint("objeto", "slug", name="uq_campo_custom_objeto_slug"),
     )
 
@@ -200,8 +237,46 @@ class CampoCustom(Base, Timestamped):
     opcoes: Mapped[list[str]] = mapped_column(JSON, default=list)  # para tipos "lista" e "multipla"
     obrigatorio: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     exigido_na_etapa_id: Mapped[int | None] = mapped_column(ForeignKey("etapa.id"))
+    # exibir na etapa (migração 0006, app.domain.campos_exibicao): null = sempre
+    exibir_funil_id: Mapped[int | None] = mapped_column(ForeignKey("funil.id"))
+    exibir_etapa_id: Mapped[int | None] = mapped_column(ForeignKey("etapa.id"))
+    visivel: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")  # preferência (migração 0006)
     ordem: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     arquivado: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+
+
+class CampoPadraoConfig(Base, Timestamped):
+    """Obrigatoriedade/visibilidade configurada de um campo padrão (catálogo em app.domain.campos_padrao). Sem linha
+    = vale o padrão do catálogo."""
+
+    __tablename__ = "campo_padrao_config"
+    __table_args__ = (
+        CheckConstraint("objeto IN ('empresa', 'pessoa', 'oportunidade', 'produto')", name="objeto"),
+        UniqueConstraint("objeto", "campo", name="uq_campo_padrao_config_objeto_campo"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    objeto: Mapped[str] = mapped_column(String(15))
+    campo: Mapped[str] = mapped_column(String(60))
+    obrigatorio: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    visivel: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    ordem: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
+class OpcaoLista(Base, Timestamped):
+    """Opções da Governança de ajustes (segmento e porte da empresa, motivo de perda). Nada se exclui: inativa."""
+
+    __tablename__ = "opcao_lista"
+    __table_args__ = (
+        CheckConstraint("tipo IN ('segmento', 'porte', 'motivo_perda')", name="tipo"),
+        UniqueConstraint("tipo", "nome", name="uq_opcao_lista_tipo_nome"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tipo: Mapped[str] = mapped_column(String(15))
+    nome: Mapped[str] = mapped_column(String(120))
+    ordem: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
 
 
 class EmpresaSocio(Base, Timestamped):

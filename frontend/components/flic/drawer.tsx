@@ -12,7 +12,8 @@
  *  - `rotulo?: string`             eyebrow do registro acima do título (ex.: "OPORTUNIDADE / NEGOCIAÇÃO")
  *  - `eyebrow?: string`            cabeçalho fixo do painel (padrão vazio: não renderiza)
  *  - `rodape?: ReactNode`          barra fixa no fim (botões Salvar/Cancelar)
- *  - `largura?: number`            px (padrão 470)
+ *  - `largura?: number | "padrao" | "metade"`   px (padrão 470) ou "metade" = metade da tela, mínimo 640px
+ *                                  (abaixo de 1024px ocupa a largura toda) — usado por empresa e fornecedor
  *  - `children`                    conteúdo (rolável)
  *
  * Exemplo:
@@ -63,10 +64,12 @@ export function Drawer({
   rotulo?: string;
   eyebrow?: string;
   rodape?: React.ReactNode;
-  largura?: number;
+  largura?: number | "padrao" | "metade";
   className?: string;
   children?: React.ReactNode;
 }) {
+  const metade = largura === "metade";
+  const px = typeof largura === "number" ? largura : 470;
   const id = useId();
   const noCliente = useSyncExternalStore(
     nada,
@@ -107,8 +110,9 @@ export function Drawer({
           animate={{ x: 0 }}
           exit={{ x: "100%" }}
           transition={{ type: "spring", stiffness: 420, damping: 40 }}
-          style={{ width: `min(100%, ${largura}px)` }}
+          style={metade ? undefined : { width: `min(100%, ${px}px)` }}
           className={cn(
+            metade && "w-full lg:w-[max(640px,50vw)]",
             "fixed top-0 right-0 bottom-0 z-50 flex flex-col bg-surface text-ink shadow-[-10px_0_50px_color-mix(in_oklab,var(--ink)_14%,transparent)] md:top-[calc(var(--tb)+var(--faixa))] md:z-40",
             className,
           )}

@@ -5,8 +5,10 @@
  * Seleção e criação contextual
  *  - SeletorEmpresa          "selecionar ou criar" empresa (o nome basta; nunca duplica)
  *  - SeletorResponsavel, SeletorCategoria, SeletorCentroCusto, SeletorConta, SeletorProduto, SeletorPessoa
- *  - CamposPersonalizados    renderiza/edita os campos custom de empresa | pessoa | oportunidade
- *    (+ useCamposDoObjeto, formatarValorCampo)
+ *  - CamposPersonalizados    renderiza/edita os campos custom de empresa | pessoa | oportunidade | produto
+ *    (+ useCamposDoObjeto, formatarValorCampo, exibidoNaEtapa — "Exibir na etapa" da oportunidade)
+ *  - useCamposPadroes        campos padrões configurados em "Campos de dados" (visível / obrigatório)
+ *  - SelectLista             lista suspensa da Governança de ajustes (segmento, porte) com "Adicionar à lista"
  *
  * Drawers de cadastro (abrem por cima de qualquer tela)
  *  - DrawerEmpresa, DrawerPessoa, DrawerProduto, DrawerFornecedor, DrawerCategoria, DrawerCentroCusto, DrawerConta
@@ -25,10 +27,20 @@
  *  - QuadroSocietario, AnexosEmpresa, aplicarCnpj    seções do drawer de empresa/fornecedor
  *
  * Utilitários: paraEnvio, alterados, txt, CHIPS_SITUACAO, useInvalidarCadastros, useUsuariosOpcoes, useIdDaUrl,
- * RodapeFormulario.
+ * RodapeFormulario, AcoesLista (Importar → ação primária em lista embutida).
  */
-export { CamposPersonalizados, ValorCampoExibido, formatarValorCampo, useCamposDoObjeto } from "./campos-personalizados";
 export {
+  CamposPersonalizados,
+  ValorCampoExibido,
+  exibidoNaEtapa,
+  formatarValorCampo,
+  useCamposDoObjeto,
+  type ExibicaoOportunidade,
+} from "./campos-personalizados";
+export { useCamposPadroes, useCamposPadroesLista } from "./campos-padroes";
+export { SelectLista } from "./listas";
+export {
+  AcoesLista,
   CHIPS_SITUACAO,
   RodapeFormulario,
   SeletorCategoria,

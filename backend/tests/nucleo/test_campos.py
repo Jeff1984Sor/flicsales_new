@@ -125,7 +125,7 @@ def test_etapas_para_campos(gestor, db):
     db.add(Etapa(funil_id=funil.id, nome="Entrada", ordem=1, probabilidade=10))
     db.commit()
     assert gestor.get("/nucleo/campos/etapas").json() == [{"id": 1, "nome": "Entrada", "funil_id": funil.id,
-                                                          "funil_nome": "Serviços B2B"}]
+                                                          "funil_nome": "Serviços B2B", "ordem": 1}]
 
 
 def test_404_e_403(gestor, leitura, comercial, financeiro):

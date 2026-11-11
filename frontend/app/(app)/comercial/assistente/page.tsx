@@ -1,5 +1,6 @@
-import { AssistenteTela } from "@/components/orquestracao/assistente-tela";
+import { redirect } from "next/navigation";
 
-export default function AssistentePage() {
-  return <AssistenteTela />;
+/** O Assistente virou módulo próprio (aba do topo): a rota antiga leva para lá. */
+export default function AssistenteAntigoPage() {
+  redirect("/assistente");
 }

@@ -3,8 +3,9 @@
 from datetime import timedelta
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
-from sqlalchemy import func, select
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 
 from app.core import audit, ia, perfis, segredos, storage
 from app.core import auth_service as svc
@@ -46,9 +47,15 @@ def _ident(ctx) -> Identidade:
     return ident
 
 
+def assinatura_imagem_url(i: Identidade) -> str | None:
+    if not storage.existe(i.assinatura_imagem):
+        return None
+    return f"/config/identidade/assinatura-imagem?v={storage.versao(i.assinatura_imagem)}"
+
+
 def _ident_out(i: Identidade) -> IdentidadeOut:
     return IdentidadeOut(nome_exibicao=i.nome_exibicao, logo_url=logo_url(i), cor_destaque=i.cor_destaque,
-                         assinatura_email=i.assinatura_email)
+                         assinatura_email=i.assinatura_email, assinatura_imagem_url=assinatura_imagem_url(i))
 
 
 @router.get("/identidade", response_model=IdentidadeOut)
@@ -80,6 +87,45 @@ async def enviar_logo(ctx: Ctx, arquivo: UploadFile = File(...)):
     ctx.auditar("identidade.logo", "identidade", i.id, descricao=f"Novo logo ({arquivo.filename})")
     ctx.db.commit()
     return _ident_out(i)
+
+
+@router.post("/identidade/assinatura-imagem", response_model=IdentidadeOut)
+async def enviar_assinatura_imagem_identidade(ctx: Ctx, arquivo: UploadFile = File(...)):
+    """Imagem da assinatura padrão (PNG ou JPG até 1 MB): vai nos e-mails que caem na assinatura da Identidade."""
+    conteudo = await arquivo.read(1024 * 1024 + 1)
+    i = _ident(ctx)
+    antes = i.assinatura_imagem
+    try:
+        i.assinatura_imagem = storage.salvar("assinaturas", arquivo.filename or "", conteudo, nome_base="identidade",
+                                             substituir=True)
+    except storage.ArquivoInvalido as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    ctx.auditar("identidade.assinatura_imagem", "identidade", i.id, descricao="Nova imagem da assinatura padrão",
+                antes={"assinatura_imagem": antes}, depois={"assinatura_imagem": i.assinatura_imagem})
+    ctx.db.commit()
+    return _ident_out(i)
+
+
+@router.delete("/identidade/assinatura-imagem", response_model=IdentidadeOut)
+def remover_assinatura_imagem_identidade(ctx: Ctx):
+    i = _ident(ctx)
+    if not i.assinatura_imagem:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "A identidade não tem imagem de assinatura.")
+    antes = i.assinatura_imagem
+    storage.remover(i.assinatura_imagem)
+    i.assinatura_imagem = None
+    ctx.auditar("identidade.assinatura_imagem", "identidade", i.id, descricao="Imagem da assinatura padrão removida",
+                antes={"assinatura_imagem": antes}, depois={"assinatura_imagem": None})
+    ctx.db.commit()
+    return _ident_out(i)
+
+
+@router.get("/identidade/assinatura-imagem")
+def ver_assinatura_imagem_identidade(ctx: Ctx):
+    i = ctx.db.get(Identidade, 1)
+    if i is None or not storage.existe(i.assinatura_imagem):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Sem imagem de assinatura padrão. Envie uma em Identidade.")
+    return FileResponse(storage.resolver(i.assinatura_imagem), headers={"Cache-Control": "private, max-age=86400"})
 
 
 # ---------------------------------------------------------------- usuários

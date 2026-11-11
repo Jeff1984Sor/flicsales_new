@@ -1,8 +1,9 @@
 """Assinatura de e-mail (funções puras, sem banco).
 
 Regra: e-mail enviado POR um usuário (comunicações, cobranças, propostas) usa a assinatura dele (texto e/ou imagem);
-sem assinatura própria, cai na assinatura padrão da Identidade. E-mails do sistema (senha, convite) usam a da
-Identidade. A imagem vai embutida no HTML como CID (`<img src="cid:assinatura">`).
+sem assinatura própria, cai na assinatura padrão da Identidade (texto e/ou imagem da Identidade, migração 0006).
+E-mails do sistema (senha, convite) usam a da Identidade. A imagem vai embutida no HTML como CID
+(`<img src="cid:assinatura">`); `origem` diz de quem é a imagem (usuário ou Identidade).
 """
 
 import html as _html
@@ -16,7 +17,7 @@ SEPARADOR = "-- "  # convenção de assinatura em texto puro
 @dataclass(frozen=True)
 class Assinatura:
     texto: str | None
-    com_imagem: bool  # True = usar a imagem do usuário
+    com_imagem: bool  # True = embutir a imagem de quem assina (`origem`: do usuário ou da Identidade)
     origem: str  # "usuario" | "identidade" | "nenhuma"
 
 
@@ -26,12 +27,12 @@ def _limpo(texto: str | None) -> str | None:
 
 
 def escolher(*, texto_usuario: str | None, tem_imagem_usuario: bool, texto_identidade: str | None,
-             do_sistema: bool = False) -> Assinatura:
+             do_sistema: bool = False, tem_imagem_identidade: bool = False) -> Assinatura:
     """Qual assinatura usar. `do_sistema`: e-mail do sistema (ignora a do usuário)."""
     if not do_sistema and (_limpo(texto_usuario) or tem_imagem_usuario):
         return Assinatura(_limpo(texto_usuario), tem_imagem_usuario, "usuario")
-    if _limpo(texto_identidade):
-        return Assinatura(_limpo(texto_identidade), False, "identidade")
+    if _limpo(texto_identidade) or tem_imagem_identidade:
+        return Assinatura(_limpo(texto_identidade), tem_imagem_identidade, "identidade")
     return Assinatura(None, False, "nenhuma")
 
 

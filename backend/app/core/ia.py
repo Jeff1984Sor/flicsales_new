@@ -1,4 +1,4 @@
-"""Inteligência Artificial plugável: OpenAI ou Gemini, escolhidos em Configurações › Inteligência Artificial.
+"""Inteligência Artificial plugável: OpenAI ou Gemini, escolhidos em Assistente › Configurações de IA.
 
 A chave fica cifrada no banco (MASTER_KEY) e só é decifrada no momento da chamada.
 Toda resposta é pedida em JSON e validada por quem chama: a IA sugere, as regras do sistema decidem.
@@ -59,15 +59,15 @@ def ligada(db: Session) -> bool:
 def provedor_ativo(db: Session) -> Provedor:
     cfg = config(db)
     if not cfg.ativo:
-        raise IAIndisponivel("A Inteligência Artificial está desligada. Ative em Configurações › Inteligência Artificial.")
+        raise IAIndisponivel("A Inteligência Artificial está desligada. Ative em Assistente › Configurações de IA.")
     if not cfg.chave_cifrada or not cfg.modelo:
-        raise IAIndisponivel("Falta a chave ou o modelo da IA em Configurações › Inteligência Artificial.")
+        raise IAIndisponivel("Falta a chave ou o modelo da IA em Assistente › Configurações de IA.")
     return Provedor(cfg.provedor, cfg.modelo, decifrar(cfg.chave_cifrada).decode())
 
 
 def _erro_http(p: str, r: httpx.Response) -> IAIndisponivel:
     if r.status_code in (401, 403):
-        return IAIndisponivel(f"A chave da {PROVEDORES[p]} foi recusada. Confira em Configurações › Inteligência Artificial.")
+        return IAIndisponivel(f"A chave da {PROVEDORES[p]} foi recusada. Confira em Assistente › Configurações de IA.")
     if r.status_code == 429:
         return IAIndisponivel(f"Limite de uso da {PROVEDORES[p]} atingido (cota ou créditos). Tente mais tarde.")
     if r.status_code == 404:

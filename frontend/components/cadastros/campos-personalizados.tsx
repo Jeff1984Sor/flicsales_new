@@ -8,13 +8,16 @@
  * API valida tipo, opções e obrigatórios e devolve 400 com a mensagem pronta.
  *
  * Props:
- *  - `objeto: "empresa" | "pessoa" | "oportunidade"`
+ *  - `objeto: "empresa" | "pessoa" | "oportunidade" | "produto"`
  *  - `valores: ValoresCampos`                         { slug: valor } (null/ausente = vazio)
  *  - `onChange: (valores: ValoresCampos) => void`     recebe o objeto inteiro já atualizado
  *  - `somenteLeitura?: boolean`                       mostra os valores em texto (detalhe do registro)
  *  - `titulo?: string | null`                         eyebrow acima dos campos (padrão "CAMPOS PERSONALIZADOS"; null esconde)
  *  - `etapaId?: number | null`                        (oportunidade) marca como obrigatório o campo exigido nesta etapa
- * Sem campos ativos para o objeto, não renderiza nada.
+ *  - `exibicao?: { funilId, etapaId, ordemDe }`       (oportunidade) "Exibir na etapa": o campo com funil de exibição só
+ *                                                     aparece naquele funil, da etapa escolhida em diante
+ *                                                     (`ordemDe(etapaId)` devolve a ordem da etapa no funil)
+ * Campo com a preferência "visível" desligada não aparece. Sem campos ativos para o objeto, não renderiza nada.
  *
  * Também exporta: `useCamposDoObjeto(objeto)` (lista do catálogo), `formatarValorCampo(campo, valor)` (texto) e
  * `<ValorCampoExibido campo valor />` (texto; hiperlink vira link clicável).
@@ -144,6 +147,23 @@ function Controle({ campo, valor, onChange }: { campo: CampoCustom; valor: Valor
   }
 }
 
+/** Onde está a oportunidade (para "Exibir na etapa"). */
+export interface ExibicaoOportunidade {
+  funilId: number | null;
+  etapaId: number | null;
+  ordemDe: (etapaId: number) => number | null;
+}
+
+/** Mesma regra do servidor: sem funil de exibição aparece sempre; noutro funil não; etapa atual com ordem ≥ a escolhida. */
+export function exibidoNaEtapa(c: Pick<CampoCustom, "exibir_funil_id" | "exibir_etapa_id">, e: ExibicaoOportunidade): boolean {
+  if (c.exibir_funil_id == null) return true;
+  if (e.funilId !== c.exibir_funil_id) return false;
+  if (c.exibir_etapa_id == null) return true;
+  const alvo = e.ordemDe(c.exibir_etapa_id);
+  const atual = e.etapaId == null ? null : e.ordemDe(e.etapaId);
+  return alvo == null || (atual != null && atual >= alvo);
+}
+
 export function CamposPersonalizados({
   objeto,
   valores,
@@ -151,6 +171,7 @@ export function CamposPersonalizados({
   somenteLeitura,
   titulo = "CAMPOS PERSONALIZADOS",
   etapaId,
+  exibicao,
 }: {
   objeto: ObjetoCampo;
   valores: ValoresCampos;
@@ -158,9 +179,10 @@ export function CamposPersonalizados({
   somenteLeitura?: boolean;
   titulo?: string | null;
   etapaId?: number | null;
+  exibicao?: ExibicaoOportunidade;
 }) {
   const { data } = useCamposDoObjeto(objeto);
-  const campos = (data ?? []).filter((c) => !c.arquivado);
+  const campos = (data ?? []).filter((c) => !c.arquivado && c.visivel !== false && (!exibicao || exibidoNaEtapa(c, exibicao)));
   if (campos.length === 0) return null;
 
   return (

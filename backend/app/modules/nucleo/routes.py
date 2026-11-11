@@ -11,6 +11,10 @@ Permissões (app/core/permissoes.py + as regras abaixo):
   empresas/{id}/(socios|anexos|cnpj/aplicar) → nucleo.cadastros.(ver|editar)
   planilhas/(empresas|pessoas|produtos)     → nucleo.cadastros.(ver modelo | editar importar)
   planilhas/(fornecedores|categorias|centros-custo|contas) → financeiro.cadastros.(ver | editar)
+  campos/sugeridos                          → nucleo.campos.(ver|editar)
+  campos/padroes                            → GET livre para logados (os formulários usam); PATCH nucleo.campos.editar
+  listas/{segmento|porte|motivo_perda}      → GET livre para logados (alimenta selects); o resto
+                                              nucleo.administracao.editar (Governança de ajustes)
 Nada é excluído: DELETE inativa (ou arquiva). Toda mudança é auditada.
 """
 
@@ -23,7 +27,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import String, case, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.core import audit, storage
@@ -34,6 +38,9 @@ from app.core.models import Usuario
 from app.core.permissoes import adicionar_regras
 from app.core.schemas import Pagina
 from app.domain import RegraViolada
+from app.domain import campos_padrao as dom_padrao
+from app.domain import campos_sugeridos as dom_sugeridos
+from app.domain import listas as dom_listas
 from app.domain.cadastro import (
     CAMPOS_ENDERECO,
     CAMPOS_PREENCHIVEIS_CNPJ,
@@ -52,18 +59,23 @@ from app.domain.cadastro import (
     validar_permissoes_comunicacao,
 )
 from app.domain.caixa import validar_edicao_conta
+from app.domain.campos_exibicao import EtapaRef, validar_exibicao
+from app.domain.contatos import principal_de, validar_emails, validar_telefones
+from app.domain.produto import descrever_recorrencia, validar_desconto, validar_recorrencia
 from app.modules.comercial.models import Etapa, Funil, Oportunidade
 from app.modules.financeiro.models import Baixa, Titulo, Transferencia
 from app.modules.nucleo import consultas, planilhas, regras, servico
 from app.modules.nucleo.comprovante import gerar_comprovante_cnpj
 from app.modules.nucleo.models import (
     CampoCustom,
+    CampoPadraoConfig,
     Categoria,
     CentroCusto,
     ContaFinanceira,
     Empresa,
     EmpresaAnexo,
     EmpresaSocio,
+    OpcaoLista,
     Pessoa,
     Produto,
 )
@@ -73,7 +85,10 @@ from app.modules.nucleo.schemas import (
     BuscaSaida,
     CampoAtualizar,
     CampoCriar,
+    CampoPadraoAtualizar,
+    CampoPadraoSaida,
     CampoSaida,
+    CampoSugeridoSaida,
     CategoriaAtualizar,
     CategoriaCriar,
     CategoriaSaida,
@@ -103,6 +118,9 @@ from app.modules.nucleo.schemas import (
     ItemBusca,
     MesclarIn,
     MesclaSaida,
+    OpcaoListaAtualizar,
+    OpcaoListaCriar,
+    OpcaoListaSaida,
     Papel,
     PessoaAtualizar,
     PessoaCriar,
@@ -110,6 +128,7 @@ from app.modules.nucleo.schemas import (
     ProdutoAtualizar,
     ProdutoCriar,
     ProdutoSaida,
+    ReordenarIn,
     SocioSaida,
     TipoAnexo,
     _ReceitaSaida,
@@ -117,6 +136,9 @@ from app.modules.nucleo.schemas import (
 
 adicionar_regras([
     ("GET", r"/nucleo/busca$", None),  # livre para logados; cada grupo confere a permissão do recurso
+    ("GET", r"/nucleo/campos/padroes$", None),  # metadado dos formulários: livre para logados
+    ("GET", r"/nucleo/listas/[^/]+$", None),  # segmento/porte/motivo de perda: alimenta selects de todos
+    ("*", r"/nucleo/listas/", "nucleo.administracao.*e"),  # Governança de ajustes
     ("POST", r"/nucleo/empresas/\d+/mesclar$", "nucleo.administracao.editar"),
     ("*", r"/nucleo/(fornecedores|categorias|centros-custo|contas)", "financeiro.cadastros.*e"),
     ("GET", r"/nucleo/consultas/(cnpj|cep)/[^/]+$", "nucleo.cadastros.ver"),
@@ -282,7 +304,9 @@ def _validar_empresa(ctx: Ctx, e: Empresa | None, dados: dict) -> dict:
     if "campos_custom" in dados or e is None:
         dados["campos_custom"] = servico.validar_campos_custom(
             ctx.db, "empresa", dados.get("campos_custom") or {}, e.campos_custom if e else None)
-    return normalizar_endereco(dados)
+    dados = normalizar_endereco(dados)
+    servico.validar_campos_padrao(ctx.db, "empresa", dados, criando=e is None)
+    return dados
 
 
 @router.get("/empresas", response_model=Pagina[EmpresaSaida])
@@ -418,8 +442,16 @@ def _validar_pessoa(ctx: Ctx, p: Pessoa | None, dados: dict) -> dict:
         raise RegraViolada("Empresa não encontrada.")
     if "responsavel_id" in dados:
         _usuario_existe(ctx, dados["responsavel_id"])
-    if dados.get("email") and "@" not in dados["email"]:
+    # vários contatos: a lista manda e o campo antigo espelha o principal (sem lista, o antigo troca o principal)
+    if "telefones" in dados:
+        dados["telefones"] = validar_telefones(dados["telefones"])
+        dados["telefone"] = principal_de(dados["telefones"], "numero")
+    if "emails" in dados:
+        dados["emails"] = validar_emails(dados["emails"])
+        dados["email"] = principal_de(dados["emails"], "email")
+    elif dados.get("email") and "@" not in dados["email"]:
         raise RegraViolada("Informe um e-mail válido.")
+    servico.validar_campos_padrao(ctx.db, "pessoa", dados, criando=p is None)
     if "base_legal" in dados:
         dados["base_legal"] = validar_base_legal(dados["base_legal"])
     if "permissoes_comunicacao" in dados or p is None:
@@ -456,7 +488,9 @@ def listar_pessoas(ctx: Ctx, q: str | None = None, empresa_id: int | None = None
     if q and q.strip():
         t = f"%{q.strip()}%"
         consulta = consulta.where(or_(Pessoa.nome.ilike(t), Pessoa.email.ilike(t), Pessoa.cargo.ilike(t),
-                                      Pessoa.telefone.ilike(t), Empresa.nome_chave.contains(chave_de_nome(q))))
+                                      Pessoa.telefone.ilike(t), cast(Pessoa.emails, String).ilike(t),
+                                      cast(Pessoa.telefones, String).ilike(t),
+                                      Empresa.nome_chave.contains(chave_de_nome(q))))
     linhas, total = _paginar(ctx, consulta.order_by(Pessoa.nome), pagina, por_pagina)
     return Pagina[PessoaSaida](itens=[_pessoa_saida(p, emp, resp) for p, emp, resp in linhas], total=total,
                                pagina=pagina, por_pagina=por_pagina)
@@ -516,7 +550,30 @@ def _validar_produto(ctx: Ctx, p: Produto | None, dados: dict) -> dict:
         dados["recorrente"] = False
     if "tipo" in dados and dados["tipo"] is None:
         raise RegraViolada("Informe o tipo (serviço ou produto).")
+
+    def final(campo: str, padrao=None):
+        return dados[campo] if campo in dados else (getattr(p, campo) if p is not None else padrao)
+
+    # desconto e recorrência valem sobre o estado final (o que veio + o que já estava): regras em app.domain.produto
+    if p is None or {"desconto_tipo", "desconto_valor", "preco_referencia"} & dados.keys():
+        dados["desconto_tipo"], dados["desconto_valor"] = validar_desconto(
+            final("desconto_tipo"), final("desconto_valor"), final("preco_referencia"))
+    if p is None or {"recorrente", "frequencia", "intervalo", "dias_semana"} & dados.keys():
+        r = validar_recorrencia(bool(final("recorrente", False)), final("frequencia"), final("intervalo"),
+                                final("dias_semana"))
+        dados.update(frequencia=r.frequencia, intervalo=r.intervalo, dias_semana=r.dias_semana)
+    if "campos_custom" in dados or p is None:
+        dados["campos_custom"] = servico.validar_campos_custom(
+            ctx.db, "produto", dados.get("campos_custom") or {}, p.campos_custom if p else None)
+    servico.validar_campos_padrao(ctx.db, "produto", dados, criando=p is None)
     return dados
+
+
+def _produto_saida(p: Produto) -> ProdutoSaida:
+    s = ProdutoSaida.model_validate(p)
+    s.dias_semana, s.campos_custom = list(p.dias_semana or []), dict(p.campos_custom or {})
+    s.recorrencia_texto = descrever_recorrencia(p.recorrente, p.frequencia, p.intervalo, p.dias_semana)
+    return s
 
 
 @router.get("/produtos", response_model=Pagina[ProdutoSaida])
@@ -530,7 +587,7 @@ def listar_produtos(ctx: Ctx, q: str | None = None, tipo: Literal["servico", "pr
         t = f"%{q.strip()}%"
         consulta = consulta.where(or_(Produto.nome.ilike(t), Produto.codigo.ilike(t), Produto.descricao.ilike(t)))
     linhas, total = _paginar(ctx, consulta.order_by(Produto.nome), pagina, por_pagina)
-    return Pagina[ProdutoSaida](itens=[ProdutoSaida.model_validate(p) for (p,) in linhas], total=total, pagina=pagina,
+    return Pagina[ProdutoSaida](itens=[_produto_saida(p) for (p,) in linhas], total=total, pagina=pagina,
                                 por_pagina=por_pagina)
 
 
@@ -541,12 +598,12 @@ def criar_produto(dados: ProdutoCriar, ctx: Ctx):
     ctx.db.flush()
     ctx.auditar("produto.criar", "produto", p.id, descricao=p.nome, depois=audit.snapshot(p))
     _commit(ctx, "Já existe produto ou serviço com este nome ou código.")
-    return p
+    return _produto_saida(p)
 
 
 @router.get("/produtos/{produto_id}", response_model=ProdutoSaida)
 def ver_produto(produto_id: int, ctx: Ctx):
-    return _ou_404(ctx.db.get(Produto, produto_id), "Produto")
+    return _produto_saida(_ou_404(ctx.db.get(Produto, produto_id), "Produto"))
 
 
 @router.patch("/produtos/{produto_id}", response_model=ProdutoSaida)
@@ -554,14 +611,14 @@ def atualizar_produto(produto_id: int, dados: ProdutoAtualizar, ctx: Ctx):
     p = _ou_404(ctx.db.get(Produto, produto_id), "Produto")
     _alterar(ctx, p, _validar_produto(ctx, p, dados.model_dump(exclude_unset=True)), "produto.alterar", "produto",
              "Já existe produto ou serviço com este nome ou código.")
-    return p
+    return _produto_saida(p)
 
 
 @router.delete("/produtos/{produto_id}", response_model=ProdutoSaida)
 def inativar_produto(produto_id: int, ctx: Ctx):
     p = _ou_404(ctx.db.get(Produto, produto_id), "Produto")
     _inativar(ctx, p, "produto", p.nome)
-    return p
+    return _produto_saida(p)
 
 
 # ================================================================================================= fornecedores
@@ -921,6 +978,12 @@ def _campo_saida(ctx: Ctx, c: CampoCustom, preenchidos: dict | None = None) -> C
         s.etapa_nome = etapa.nome if etapa else None
         funil = ctx.db.get(Funil, etapa.funil_id) if etapa else None
         s.funil_id, s.funil_nome = (funil.id, funil.nome) if funil else (None, None)
+    if c.exibir_funil_id:
+        funil = ctx.db.get(Funil, c.exibir_funil_id)
+        s.exibir_funil_nome = funil.nome if funil else None
+    if c.exibir_etapa_id:
+        etapa = ctx.db.get(Etapa, c.exibir_etapa_id)
+        s.exibir_etapa_nome, s.exibir_etapa_ordem = (etapa.nome, etapa.ordem) if etapa else (None, None)
     s.tipo_rotulo = regras.ROTULO_TIPO.get(c.tipo, c.tipo)
     cont = preenchidos if preenchidos is not None else servico.preenchimentos(ctx.db, c.objeto)
     s.registros_preenchidos = cont.get(c.slug, 0)
@@ -942,9 +1005,32 @@ def _validar_etapa(ctx: Ctx, objeto: str, etapa_id: int | None) -> None:
         raise RegraViolada("O funil desta etapa está inativo. Escolha uma etapa de um funil ativo.")
 
 
+def _etapa_ref(ctx: Ctx, etapa_id: int | None, o_que: str) -> EtapaRef | None:
+    if etapa_id is None:
+        return None
+    etapa = ctx.db.get(Etapa, etapa_id)
+    if etapa is None:
+        raise RegraViolada(f"Etapa {o_que} não encontrada. Escolha o funil e depois uma etapa dele.")
+    return EtapaRef(etapa.id, etapa.funil_id, etapa.ordem)
+
+
+def _validar_exibicao(ctx: Ctx, objeto: str, funil_id: int | None, etapa_id: int | None,
+                      exigido_id: int | None) -> int | None:
+    """Exibir na etapa (regra em app.domain.campos_exibicao). Devolve o funil de exibição."""
+    if funil_id is not None:
+        funil = ctx.db.get(Funil, funil_id)
+        if funil is None or not funil.ativo:
+            raise RegraViolada("Funil de exibição não encontrado ou inativo. Escolha um funil ativo.")
+    return validar_exibicao(objeto=objeto, exibir_funil_id=funil_id,
+                            exibir_etapa=_etapa_ref(ctx, etapa_id, "de exibição"),
+                            exigido_etapa=_etapa_ref(ctx, exigido_id, "exigida"))
+
+
+ObjetoCampoQuery = Literal["empresa", "pessoa", "oportunidade", "produto"]
+
+
 @router.get("/campos", response_model=list[CampoSaida])
-def listar_campos(ctx: Ctx, objeto: Literal["empresa", "pessoa", "oportunidade"] | None = None,
-                  arquivados: bool = False):
+def listar_campos(ctx: Ctx, objeto: ObjetoCampoQuery | None = None, arquivados: bool = False):
     consulta = select(CampoCustom)
     if objeto:
         consulta = consulta.where(CampoCustom.objeto == objeto)
@@ -958,21 +1044,107 @@ def listar_campos(ctx: Ctx, objeto: Literal["empresa", "pessoa", "oportunidade"]
 @router.get("/campos/etapas", response_model=list[EtapaOpcao])
 def etapas_para_campos(ctx: Ctx):
     """Etapas de todos os funis ativos (para "exigir na etapa"). Só leitura no modelo do Comercial."""
-    linhas = ctx.db.execute(select(Etapa.id, Etapa.nome, Funil.id, Funil.nome).join(Funil, Funil.id == Etapa.funil_id)
+    linhas = ctx.db.execute(select(Etapa.id, Etapa.nome, Funil.id, Funil.nome, Etapa.ordem)
+                            .join(Funil, Funil.id == Etapa.funil_id)
                             .where(Funil.ativo.is_(True)).order_by(Funil.nome, Etapa.ordem)).all()
-    return [EtapaOpcao(id=i, nome=n, funil_id=fid, funil_nome=f) for i, n, fid, f in linhas]
+    return [EtapaOpcao(id=i, nome=n, funil_id=fid, funil_nome=f, ordem=o) for i, n, fid, f, o in linhas]
+
+
+# ------------------------------------------------------------------------------- sugestão de campos e campos padrões
+def _slugs(ctx: Ctx, objeto: str) -> set[str]:
+    return set(ctx.db.scalars(select(CampoCustom.slug).where(CampoCustom.objeto == objeto)))
+
+
+def _sugestao_saida(objeto: str, s: dom_sugeridos.Sugestao) -> CampoSugeridoSaida:
+    return CampoSugeridoSaida(objeto=objeto, chave=s.chave, nome=s.nome, tipo=s.tipo,
+                              tipo_rotulo=regras.ROTULO_TIPO.get(s.tipo, s.tipo), descricao=s.descricao,
+                              opcoes=list(s.opcoes))
+
+
+@router.get("/campos/sugestoes", response_model=list[CampoSugeridoSaida])
+@router.get("/campos/sugeridos", response_model=list[CampoSugeridoSaida])
+def campos_sugeridos(ctx: Ctx, objeto: ObjetoCampoQuery | None = None):
+    """Modelos prontos de campo ainda não criados (sem objeto: todos os objetos)."""
+    objetos = [objeto] if objeto else list(dom_sugeridos.OBJETOS)
+    return [_sugestao_saida(o, s) for o in objetos for s in dom_sugeridos.disponiveis(o, _slugs(ctx, o))]
+
+
+@router.post("/campos/sugeridos/{objeto}/{chave}", response_model=CampoSaida, status_code=201)
+def adicionar_campo_sugerido(objeto: str, chave: str, ctx: Ctx):
+    """“+ Adicionar campo”: cria o campo personalizado já configurado (vai para o fim da lista)."""
+    if objeto not in dom_sugeridos.OBJETOS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            "Objeto não encontrado. Use oportunidade, empresa, pessoa ou produto.")
+    if not any(s.chave == chave for s in dom_sugeridos.CATALOGO[objeto]):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Sugestão de campo não encontrada.")
+    s = dom_sugeridos.obter(objeto, chave, _slugs(ctx, objeto))
+    opcoes = regras.validar_definicao_campo(nome=s.nome, tipo=s.tipo, objeto=objeto, opcoes=list(s.opcoes))
+    ordem = (ctx.db.scalar(select(func.max(CampoCustom.ordem)).where(CampoCustom.objeto == objeto)) or 0) + 1
+    c = CampoCustom(nome=s.nome, slug=s.chave, tipo=s.tipo, objeto=objeto, opcoes=opcoes, obrigatorio=False,
+                    ordem=ordem)
+    ctx.db.add(c)
+    ctx.db.flush()
+    ctx.auditar("campo_custom.criar", "campo_custom", c.id, descricao=f"{c.nome} · {c.tipo} · {c.objeto} (sugestão)",
+                depois=audit.snapshot(c))
+    _commit(ctx, "Já existe campo com este nome neste objeto.")
+    return _campo_saida(ctx, c)
+
+
+def _padrao_saida(objeto: str, e: dom_padrao.CampoEfetivo) -> CampoPadraoSaida:
+    return CampoPadraoSaida(objeto=objeto, campo=e.campo, nome=e.nome, tipo=e.tipo, fixo=e.fixo,
+                            obrigatorio=e.obrigatorio, visivel=e.visivel, ordem=e.ordem)
+
+
+@router.get("/campos/padroes", response_model=list[CampoPadraoSaida])
+def campos_padroes(ctx: Ctx, objeto: ObjetoCampoQuery | None = None):
+    """Campos fixos do sistema com obrigatoriedade/visibilidade (sem objeto: todos). Livre para logados: os
+    formulários escondem o invisível e exigem o obrigatório (o servidor também exige)."""
+    objetos = [objeto] if objeto else list(dom_padrao.OBJETOS)
+    return [_padrao_saida(o, e) for o in objetos for e in servico.campos_padrao(ctx.db, o)]
+
+
+@router.patch("/campos/padroes/{objeto}/{campo}", response_model=CampoPadraoSaida)
+def configurar_campo_padrao(objeto: str, campo: str, dados: CampoPadraoAtualizar, ctx: Ctx):
+    if objeto not in dom_padrao.OBJETOS or not any(c.campo == campo for c in dom_padrao.CATALOGO[objeto]):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Campo padrão não encontrado.")
+    atual = next(e for e in servico.campos_padrao(ctx.db, objeto) if e.campo == campo)
+    valores = {k: v for k, v in dados.model_dump(exclude_unset=True).items() if v is not None}
+    obrigatorio = valores.get("obrigatorio", atual.obrigatorio)
+    visivel = valores.get("visivel", atual.visivel)
+    cat = dom_padrao.validar_alteracao(objeto, campo, obrigatorio=obrigatorio, visivel=visivel)
+    cfg = ctx.db.scalar(select(CampoPadraoConfig).where(CampoPadraoConfig.objeto == objeto,
+                                                        CampoPadraoConfig.campo == campo))
+    chaves = ("obrigatorio", "visivel", "ordem")
+    antes = ({k: getattr(cfg, k) for k in chaves} if cfg is not None
+             else {"obrigatorio": atual.obrigatorio, "visivel": atual.visivel, "ordem": 0})
+    if cfg is None:
+        cfg = CampoPadraoConfig(objeto=objeto, campo=campo, ordem=0)
+        ctx.db.add(cfg)
+    cfg.obrigatorio, cfg.visivel = obrigatorio, visivel
+    if "ordem" in valores:
+        cfg.ordem = valores["ordem"]
+    ctx.db.flush()
+    a, d = audit.diff(antes, {k: getattr(cfg, k) for k in chaves})
+    if a or d:
+        ctx.auditar("campo_padrao.alterar", "campo_padrao_config", cfg.id, descricao=f"{cat.nome} · {objeto}",
+                    antes=a, depois=d)
+    _commit(ctx, "Outra pessoa alterou este campo ao mesmo tempo. Atualize a tela.")
+    return _padrao_saida(objeto, next(e for e in servico.campos_padrao(ctx.db, objeto) if e.campo == campo))
 
 
 @router.post("/campos", response_model=CampoSaida, status_code=201)
 def criar_campo(dados: CampoCriar, ctx: Ctx):
     opcoes = regras.validar_definicao_campo(nome=dados.nome, tipo=dados.tipo, objeto=dados.objeto, opcoes=dados.opcoes)
     _validar_etapa(ctx, dados.objeto, dados.exigido_na_etapa_id)
+    exibir_funil_id = _validar_exibicao(ctx, dados.objeto, dados.exibir_funil_id, dados.exibir_etapa_id,
+                                        dados.exigido_na_etapa_id)
     nome = validar_nome(dados.nome, o_que="o nome do campo")
     slug = regras.slug_de(nome)
     if ctx.db.scalar(select(CampoCustom.id).where(CampoCustom.objeto == dados.objeto, CampoCustom.slug == slug)):
         raise RegraViolada("Já existe campo com este nome neste objeto.")
     c = CampoCustom(nome=nome, slug=slug, tipo=dados.tipo, objeto=dados.objeto, opcoes=opcoes,
-                    obrigatorio=dados.obrigatorio, exigido_na_etapa_id=dados.exigido_na_etapa_id, ordem=dados.ordem)
+                    obrigatorio=dados.obrigatorio, exigido_na_etapa_id=dados.exigido_na_etapa_id, ordem=dados.ordem,
+                    exibir_funil_id=exibir_funil_id, exibir_etapa_id=dados.exibir_etapa_id, visivel=dados.visivel)
     ctx.db.add(c)
     ctx.db.flush()
     ctx.auditar("campo_custom.criar", "campo_custom", c.id, descricao=f"{c.nome} · {c.tipo} · {c.objeto}",
@@ -1005,8 +1177,18 @@ def atualizar_campo(campo_id: int, dados: CampoAtualizar, ctx: Ctx):
         valores["obrigatorio"] = False
     if "ordem" in valores and valores["ordem"] is None:
         valores["ordem"] = 0
+    if "visivel" in valores and valores["visivel"] is None:
+        valores["visivel"] = True
     if "exigido_na_etapa_id" in valores and valores["exigido_na_etapa_id"] != c.exigido_na_etapa_id:
         _validar_etapa(ctx, c.objeto, valores["exigido_na_etapa_id"])
+    if "exibir_funil_id" in valores and valores["exibir_funil_id"] is None and "exibir_etapa_id" not in valores:
+        valores["exibir_etapa_id"] = None  # tirou o funil: deixa de exibir por etapa
+    if {"exibir_funil_id", "exibir_etapa_id", "exigido_na_etapa_id"} & valores.keys():
+        final = {k: valores[k] if k in valores else getattr(c, k)
+                 for k in ("exibir_funil_id", "exibir_etapa_id", "exigido_na_etapa_id")}
+        valores["exibir_funil_id"] = _validar_exibicao(ctx, c.objeto, final["exibir_funil_id"],
+                                                       final["exibir_etapa_id"], final["exigido_na_etapa_id"])
+        valores["exibir_etapa_id"] = final["exibir_etapa_id"]
     _alterar(ctx, c, valores, "campo_custom.alterar", "campo_custom", "Já existe campo com este nome neste objeto.")
     return _campo_saida(ctx, c)
 
@@ -1058,6 +1240,87 @@ def restaurar_campo(campo_id: int, ctx: Ctx):
 
 
 ROTULO_USO = {"dashboard": "Dashboard", "automacao": "Automação", "etapa": "Etapa", "registros": "Registros"}
+
+
+# ================================================================================================= listas (governança)
+def _tipo_lista(tipo: str) -> str:
+    if tipo not in dom_listas.TIPOS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lista não encontrada. Use segmento, porte ou motivo_perda.")
+    return tipo
+
+
+def _opcao(ctx: Ctx, tipo: str, opcao_id: int) -> OpcaoLista:
+    o = ctx.db.get(OpcaoLista, opcao_id)
+    if o is None or o.tipo != _tipo_lista(tipo):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Opção não encontrada nesta lista.")
+    return o
+
+
+def _outros_nomes(ctx: Ctx, tipo: str, exceto_id: int | None = None) -> list[str]:
+    q = select(OpcaoLista.nome).where(OpcaoLista.tipo == tipo)
+    if exceto_id is not None:
+        q = q.where(OpcaoLista.id != exceto_id)
+    return list(ctx.db.scalars(q))
+
+
+@router.get("/listas/{tipo}", response_model=list[OpcaoListaSaida])
+def listar_opcoes(tipo: str, ctx: Ctx, incluir_inativos: bool = False):
+    """Opções na ordem. Sem `incluir_inativos`, só as ativas (selects); com ele, todas (Governança de ajustes)."""
+    return servico.opcoes_da_lista(ctx.db, _tipo_lista(tipo), so_ativas=not incluir_inativos)
+
+
+@router.post("/listas/{tipo}", response_model=OpcaoListaSaida, status_code=201)
+def criar_opcao(tipo: str, dados: OpcaoListaCriar, ctx: Ctx):
+    tipo = _tipo_lista(tipo)
+    nome = dom_listas.validar_nome_opcao(tipo, dados.nome, _outros_nomes(ctx, tipo))
+    ordem = dados.ordem if dados.ordem is not None else (
+        ctx.db.scalar(select(func.max(OpcaoLista.ordem)).where(OpcaoLista.tipo == tipo)) or 0) + 1
+    o = OpcaoLista(tipo=tipo, nome=nome, ordem=ordem, ativo=True)
+    ctx.db.add(o)
+    ctx.db.flush()
+    ctx.auditar("opcao_lista.criar", "opcao_lista", o.id, descricao=f"{dom_listas.ROTULO[tipo]}: {nome}",
+                depois=audit.snapshot(o))
+    _commit(ctx, "Já existe esta opção na lista.")
+    return o
+
+
+@router.post("/listas/{tipo}/reordenar", response_model=list[OpcaoListaSaida])
+def reordenar_opcoes(tipo: str, dados: ReordenarIn, ctx: Ctx):
+    """`ids` = todos os itens da lista (ativos e inativos), na ordem nova."""
+    tipo = _tipo_lista(tipo)
+    itens = {o.id: o for o in servico.opcoes_da_lista(ctx.db, tipo, so_ativas=False)}
+    ids = dom_listas.validar_reordenacao(list(itens), dados.ids)
+    antes = {str(o.id): o.ordem for o in itens.values()}
+    for ordem, i in enumerate(ids, 1):
+        itens[i].ordem = ordem
+    depois = {str(o.id): o.ordem for o in itens.values()}
+    if antes != depois:
+        ctx.auditar("opcao_lista.reordenar", "opcao_lista", None, descricao=f"Nova ordem da lista {tipo}",
+                    antes={"ordem": antes}, depois={"ordem": depois})
+    ctx.db.commit()
+    return servico.opcoes_da_lista(ctx.db, tipo, so_ativas=False)
+
+
+@router.patch("/listas/{tipo}/{opcao_id}", response_model=OpcaoListaSaida)
+def atualizar_opcao(tipo: str, opcao_id: int, dados: OpcaoListaAtualizar, ctx: Ctx):
+    """Renomear não muda os cadastros que já usam o texto antigo (segmento, porte e motivo continuam texto)."""
+    o = _opcao(ctx, tipo, opcao_id)
+    valores = dados.model_dump(exclude_unset=True)
+    if "nome" in valores:
+        valores["nome"] = dom_listas.validar_nome_opcao(o.tipo, valores["nome"], _outros_nomes(ctx, o.tipo, o.id))
+    for campo in ("ordem", "ativo"):
+        if campo in valores and valores[campo] is None:
+            raise RegraViolada(f"Informe {'a ordem' if campo == 'ordem' else 'se a opção está ativa'}.")
+    _alterar(ctx, o, valores, "opcao_lista.alterar", "opcao_lista", "Já existe esta opção na lista.")
+    return o
+
+
+@router.delete("/listas/{tipo}/{opcao_id}", response_model=OpcaoListaSaida)
+def inativar_opcao(tipo: str, opcao_id: int, ctx: Ctx):
+    """Nada se exclui: a opção some dos selects e continua nos cadastros que a usam."""
+    o = _opcao(ctx, tipo, opcao_id)
+    _inativar(ctx, o, "opcao_lista", f"{dom_listas.ROTULO[o.tipo]}: {o.nome}")
+    return o
 
 
 # ================================================================================================= consultas públicas

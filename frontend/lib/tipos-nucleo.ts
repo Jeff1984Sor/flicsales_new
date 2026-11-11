@@ -8,7 +8,7 @@ export type TipoProduto = "servico" | "produto";
 export type Natureza = "receita" | "despesa";
 /** `lista` = seleção única; `sim_nao` só existe em campos antigos (não é oferecido na criação). */
 export type TipoCampo = "texto" | "numero" | "moeda" | "data" | "sim_nao" | "lista" | "multipla" | "link";
-export type ObjetoCampo = "empresa" | "pessoa" | "oportunidade";
+export type ObjetoCampo = "empresa" | "pessoa" | "oportunidade" | "produto";
 
 /** Valor de um campo personalizado como a API guarda: texto, número, moeda ("1234.50"), data ("AAAA-MM-DD"), sim/não,
  * seleção múltipla (lista de opções) e hiperlink (URL http/https). */
@@ -67,7 +67,14 @@ export const PERMISSOES_COMUNICACAO: { valor: PermissaoComunicacao; rotulo: stri
   { valor: "opt_out", rotulo: "Opt-out / Não deseja receber comunicações", curto: "Opt-out" },
 ];
 export const ROTULO_PERMISSAO: Record<string, string> = Object.fromEntries(PERMISSOES_COMUNICACAO.map((p) => [p.valor, p.curto]));
-export const ROTULO_OBJETO: Record<ObjetoCampo, string> = { empresa: "Empresa", pessoa: "Pessoa", oportunidade: "Oportunidade" };
+export const ROTULO_OBJETO: Record<ObjetoCampo, string> = { empresa: "Empresa", pessoa: "Pessoa", oportunidade: "Oportunidade", produto: "Produto ou serviço" };
+/** Abas de "Campos de dados", na ordem da tela. */
+export const ABAS_OBJETO_CAMPO: { valor: ObjetoCampo; rotulo: string }[] = [
+  { valor: "oportunidade", rotulo: "Oportunidades" },
+  { valor: "empresa", rotulo: "Empresas" },
+  { valor: "pessoa", rotulo: "Contatos" },
+  { valor: "produto", rotulo: "Produtos e serviços" },
+];
 
 /** Endereço estruturado de empresa e pessoa (CEP no formato 00000-000, UF com 2 letras). */
 export interface Endereco {
@@ -98,7 +105,8 @@ export interface Empresa extends Endereco {
   segmento: string | null;
   porte: string | null;
   site: string | null;
-  email_financeiro: string | null;
+  /** fora da tela desde 11/2026 (a coluna continua no banco) */
+  email_financeiro?: string | null;
   telefone: string | null;
   endereco: string | null;
   responsavel_id: number | null;
@@ -141,7 +149,6 @@ export interface EmpresaEntrada extends Endereco {
   segmento?: string | null;
   porte?: string | null;
   site?: string | null;
-  email_financeiro?: string | null;
   telefone?: string | null;
   endereco?: string | null;
   responsavel_id?: number | null;
@@ -162,8 +169,13 @@ export interface Pessoa extends Endereco {
   empresa_id: number | null;
   empresa_nome: string | null;
   cargo: string | null;
+  /** espelha o e-mail principal de `emails` */
   email: string | null;
+  /** espelha o telefone principal de `telefones` */
   telefone: string | null;
+  /** vários telefones/e-mails, exatamente um principal (ausentes em backend antigo) */
+  telefones?: TelefonePessoa[];
+  emails?: EmailPessoa[];
   responsavel_id: number | null;
   responsavel_nome: string | null;
   canal_preferido: CanalPreferido | null;
@@ -176,6 +188,43 @@ export interface Pessoa extends Endereco {
   permissoes_comunicacao?: PermissaoComunicacao[];
 }
 
+export type TipoTelefone = "celular" | "whatsapp" | "fixo" | "comercial";
+export type TipoEmail = "comercial" | "pessoal" | "financeiro";
+export const ROTULO_TIPO_TELEFONE: Record<TipoTelefone, string> = { celular: "Celular", whatsapp: "WhatsApp", fixo: "Fixo", comercial: "Comercial" };
+export const ROTULO_TIPO_EMAIL: Record<TipoEmail, string> = { comercial: "Comercial", pessoal: "Pessoal", financeiro: "Financeiro" };
+
+export interface TelefonePessoa {
+  numero: string;
+  tipo: TipoTelefone;
+  principal: boolean;
+}
+
+export interface EmailPessoa {
+  email: string;
+  tipo: TipoEmail;
+  principal: boolean;
+}
+
+export type DescontoTipo = "percentual" | "valor";
+export type Frequencia = "diaria" | "semanal" | "mensal" | "semestral" | "anual";
+export type DiaSemana = "seg" | "ter" | "qua" | "qui" | "sex" | "sab" | "dom";
+export const FREQUENCIAS: { valor: Frequencia; rotulo: string; unidade: string }[] = [
+  { valor: "diaria", rotulo: "Diária", unidade: "dia(s)" },
+  { valor: "semanal", rotulo: "Semanal", unidade: "semana(s)" },
+  { valor: "mensal", rotulo: "Mensal", unidade: "mês(es)" },
+  { valor: "semestral", rotulo: "Semestral", unidade: "semestre" },
+  { valor: "anual", rotulo: "Anual", unidade: "ano(s)" },
+];
+export const DIAS_SEMANA: { valor: DiaSemana; rotulo: string }[] = [
+  { valor: "seg", rotulo: "Seg" },
+  { valor: "ter", rotulo: "Ter" },
+  { valor: "qua", rotulo: "Qua" },
+  { valor: "qui", rotulo: "Qui" },
+  { valor: "sex", rotulo: "Sex" },
+  { valor: "sab", rotulo: "Sáb" },
+  { valor: "dom", rotulo: "Dom" },
+];
+
 export interface Produto {
   id: number;
   nome: string;
@@ -186,6 +235,16 @@ export interface Produto {
   recorrente: boolean;
   descricao: string | null;
   ativo: boolean;
+  /** campos novos (ausentes em backend antigo) */
+  desconto_tipo?: DescontoTipo | null;
+  /** string decimal: percentual (0–100) ou valor em R$ */
+  desconto_valor?: string | null;
+  frequencia?: Frequencia | null;
+  intervalo?: number | null;
+  dias_semana?: DiaSemana[];
+  /** "Toda semana: seg, qua", "A cada 2 meses"… (calculado no servidor) */
+  recorrencia_texto?: string | null;
+  campos_custom?: ValoresCampos;
 }
 
 export interface Fornecedor extends Endereco {
@@ -246,10 +305,42 @@ export interface CampoCustom {
   /** funil da etapa exigida (ausente em backend antigo) */
   funil_id?: number | null;
   funil_nome?: string | null;
+  /** "Exibir na etapa": funil + etapa a partir da qual o campo aparece (null = sempre / qualquer etapa do funil) */
+  exibir_funil_id?: number | null;
+  exibir_funil_nome?: string | null;
+  exibir_etapa_id?: number | null;
+  exibir_etapa_nome?: string | null;
+  /** preferência "visível no cadastro" (ausente em backend antigo = visível) */
+  visivel?: boolean;
+  /** instante ISO */
+  criado_em?: string | null;
   ordem: number;
   arquivado: boolean;
   registros_preenchidos: number;
   dependencias_ativas: number;
+}
+
+/** Campo fixo do sistema (GET /nucleo/campos/padroes?objeto=). `fixo=true`: sempre obrigatório e visível (sem lápis). */
+export interface CampoPadrao {
+  objeto?: ObjetoCampo;
+  /** chave do campo na API ("segmento", "empresa_id"…) */
+  campo: string;
+  nome: string;
+  /** rótulo do tipo de dado (Texto, Data, Lista…) */
+  tipo: string;
+  fixo: boolean;
+  obrigatorio: boolean;
+  visivel: boolean;
+  ordem: number;
+}
+
+/** Modelo pronto de "Sugestão de campos" (GET /nucleo/campos/sugestoes?objeto=). */
+export interface CampoSugerido {
+  chave: string;
+  nome: string;
+  tipo: TipoCampo;
+  opcoes: string[];
+  descricao?: string | null;
 }
 
 export interface Dependencia {
@@ -347,7 +438,7 @@ export interface ConsultaCnpj extends Endereco {
   /** AAAA-MM-DD */
   abertura: string | null;
   telefone: string | null;
-  email_financeiro: string | null;
+  email_financeiro?: string | null;
   fonte: string;
   empresa_existente: { id: number; nome: string } | null;
   socios?: SocioConsulta[];

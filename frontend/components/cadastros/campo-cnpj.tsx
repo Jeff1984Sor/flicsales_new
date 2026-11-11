@@ -14,7 +14,7 @@
  *  - `onAbrirExistente?: (id: number) => void`            ação do aviso de duplicidade
  *  - `rotuloExistente?: string`                           padrão "Abrir cadastro existente"
  *  - `erroExterno?: string | null`                       erro vindo do salvar (ex.: "CNPJ ou CPF inválido.", duplicado)
- *  - `rotulo?: string`  `disabled?: boolean`  `autoFocus?: boolean`
+ *  - `rotulo?: string`  `disabled?: boolean`  `autoFocus?: boolean`  `obrigatorio?: boolean` (marca "*")
  * Com 14 dígitos e dígito verificador errado o campo avisa na hora ("CNPJ inválido: confira os dígitos.").
  * Utilitários: `erroDocumentoLocal(v)` (mesma checagem, para bloquear o envio) e `erroDeDocumento(e)` (erro 400 do
  * salvar que fala do documento → mensagem para o campo; outros erros → null).
@@ -48,6 +48,7 @@ export function CampoCnpj({
   rotulo = "CNPJ / CPF",
   disabled,
   autoFocus,
+  obrigatorio,
   erroExterno,
 }: {
   valor: string;
@@ -58,6 +59,7 @@ export function CampoCnpj({
   onAbrirExistente?: (id: number) => void;
   rotuloExistente?: string;
   rotulo?: string;
+  obrigatorio?: boolean;
   disabled?: boolean;
   autoFocus?: boolean;
   erroExterno?: string | null;
@@ -99,7 +101,7 @@ export function CampoCnpj({
 
   return (
     <div className="flex flex-col gap-2">
-      <Field label={rotulo} erro={erro ?? erroExterno ?? undefined}>
+      <Field label={rotulo} obrigatorio={obrigatorio} erro={erro ?? erroExterno ?? undefined}>
         <div className="flex gap-2">
           <Input
             className="num h-9 flex-1"

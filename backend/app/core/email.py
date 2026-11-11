@@ -4,7 +4,8 @@ Sem SMTP em dev, grava a mensagem em storage/outbox (.eml). Sem SMTP em hml/prod
 Nunca registra o corpo da mensagem no log (pode conter link de redefinição de senha).
 
 Assinatura (app.domain.assinatura): `remetente=<Usuario>` = e-mail enviado POR um usuário (comunicação, cobrança,
-proposta) → assinatura dele (texto + imagem inline CID), ou a padrão da Identidade se ele não tem; `assinar=True`
+proposta) → assinatura dele (texto + imagem inline CID), ou a padrão da Identidade (texto + imagem da Identidade)
+se ele não tem; `assinar=True`
 sem remetente = e-mail do sistema (senha, convite) → assinatura da Identidade. Sem os dois, nada é acrescentado.
 """
 
@@ -106,12 +107,15 @@ def assinar_mensagem(db: Session | None, corpo: str, html: str | None,
                      ) -> tuple[str, str | None, dict[str, tuple[bytes, str]] | None]:
     """Acrescenta a assinatura (do `remetente` ou, sem ele/sem assinatura própria, a da Identidade)."""
     identidade = db.get(Identidade, 1) if db is not None else None
-    caminho = remetente.assinatura_imagem if remetente is not None else None
-    tem_imagem = storage.existe(caminho)
+    caminho_usuario = remetente.assinatura_imagem if remetente is not None else None
+    caminho_identidade = identidade.assinatura_imagem if identidade else None
     escolha = _assinatura.escolher(
-        texto_usuario=remetente.assinatura_email if remetente is not None else None, tem_imagem_usuario=tem_imagem,
-        texto_identidade=identidade.assinatura_email if identidade else None, do_sistema=remetente is None)
+        texto_usuario=remetente.assinatura_email if remetente is not None else None,
+        tem_imagem_usuario=storage.existe(caminho_usuario),
+        texto_identidade=identidade.assinatura_email if identidade else None, do_sistema=remetente is None,
+        tem_imagem_identidade=storage.existe(caminho_identidade))
     corpo, html = _assinatura.aplicar(corpo, html, escolha)
+    caminho = caminho_usuario if escolha.origem == "usuario" else caminho_identidade
     if escolha.com_imagem and caminho:
         ext = "." + caminho.rsplit(".", 1)[-1].lower()
         imagens = {**(imagens or {}), _assinatura.CID_IMAGEM: (storage.ler(caminho), _MIME.get(ext, "image/png"))}

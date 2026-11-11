@@ -252,6 +252,9 @@ def semear(db: Session, hoje: date | None = None) -> bool:
     base(db)
     usuarios(db)
     criado = demo(db, hoje or hoje_de_negocio())
+    from app.modules.nucleo.servico import garantir_listas_padrao
+
+    garantir_listas_padrao(db)  # segmentos, portes e motivos de perda (Governança de ajustes), se vazias
     db.commit()
     return criado
 

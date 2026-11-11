@@ -86,6 +86,8 @@ class Identidade(Base, Timestamped):
     logo_path: Mapped[str | None] = mapped_column(String(500))  # relativo ao storage
     cor_destaque: Mapped[str | None] = mapped_column(String(9))
     assinatura_email: Mapped[str | None] = mapped_column(Text)
+    # imagem da assinatura padrão (migração 0006), RELATIVA ao storage ("assinaturas/identidade.png")
+    assinatura_imagem: Mapped[str | None] = mapped_column(String(300))
 
 
 class ConfigEmail(Base, Timestamped):

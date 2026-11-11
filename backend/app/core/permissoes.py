@@ -138,6 +138,7 @@ _REGRAS: list[tuple[str, str, str | None]] = [
     ("DELETE", r"/auth/usuarios/\d+/foto$", "nucleo.administracao.editar"),
     ("*", r"/auth/", LIVRE),
     ("GET", r"/config/identidade$", LIVRE),
+    ("GET", r"/config/identidade/assinatura-imagem$", LIVRE),  # imagem da assinatura padrão (prévia nas telas)
     ("GET", r"/config/usuarios/opcoes$", LIVRE),  # lista curta (id, nome) para escolher responsável
     ("*", r"/config/identidade", "configuracoes.*e"),
     ("*", r"/config/(email|ia)", "configuracoes.*e"),

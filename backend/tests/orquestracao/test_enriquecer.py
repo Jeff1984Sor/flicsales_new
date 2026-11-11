@@ -77,7 +77,7 @@ def test_sem_ia_sugere_pelo_cnpj_e_nao_grava(client, gestor, db, consultas):
 
 
 def enr_limite_ia_desligada() -> str:
-    return "A IA está desligada: ative em Configurações › Inteligência Artificial para pedidos livres."
+    return "A IA está desligada: ative em Assistente › Configurações de IA para pedidos livres."
 
 
 def test_sem_ia_avisa_cnpj_ja_cadastrado_e_cnpj_invalido(client, gestor, consultas, monkeypatch):

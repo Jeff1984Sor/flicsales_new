@@ -43,7 +43,7 @@ def estado_ia(ctx: Ctx):
     provedor, modelo = gateway.descricao(ctx.db)
     ligada = gateway.ligada(ctx.db)
     return {"ligada": ligada, "provedor": provedor if ligada else None, "modelo": modelo if ligada else None,
-            "configurar_em": "/configuracoes/ia"}
+            "configurar_em": "/assistente/configuracoes"}
 
 
 @router.post("/ia/perguntar", response_model=RespostaOut)

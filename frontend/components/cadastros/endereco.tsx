@@ -10,6 +10,7 @@
  *  - `onChange: (parcial: Partial<ValorEndereco>) => void` só o que mudou (o pai mescla no formulário)
  *  - `disabled?: boolean`                                 somente leitura (sem permissão ou endereço da empresa)
  *  - `dica?: ReactNode`                                   linha cinza abaixo do bloco
+ *  - `obrigatorio?: (campo) => boolean`                   marca "*" (campos padrões de "Campos de dados")
  *
  * Utilitários: `ENDERECO_VAZIO`, `enderecoDe(registro)` (null → "").
  */
@@ -44,12 +45,15 @@ export function BlocoEndereco({
   onChange,
   disabled,
   dica,
+  obrigatorio,
 }: {
   valor: ValorEndereco;
   onChange: (parcial: Partial<ValorEndereco>) => void;
   disabled?: boolean;
   dica?: React.ReactNode;
+  obrigatorio?: (campo: CampoEndereco) => boolean;
 }) {
+  const obr = (c: CampoEndereco) => !disabled && !!obrigatorio?.(c);
   const [buscando, setBuscando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const ultimo = useRef("");
@@ -88,7 +92,7 @@ export function BlocoEndereco({
     <fieldset className="flex flex-col gap-4" disabled={disabled}>
       <legend className="eyebrow mb-3">ENDEREÇO</legend>
       <div className="grid gap-4 sm:grid-cols-[150px_1fr]">
-        <Field label="CEP" erro={erro ?? undefined}>
+        <Field label="CEP" obrigatorio={obr("cep")} erro={erro ?? undefined}>
           <div className="relative">
             <Input
               className="num h-9"
@@ -113,26 +117,26 @@ export function BlocoEndereco({
             {buscando && <Loader2 className="absolute top-1/2 right-2.5 size-4 -translate-y-1/2 animate-spin text-muted" aria-label="Buscando CEP" />}
           </div>
         </Field>
-        <Field label="Logradouro">
+        <Field label="Logradouro" obrigatorio={obr("logradouro")}>
           <Input {...texto("logradouro")} autoComplete="address-line1" />
         </Field>
       </div>
       <div className="grid gap-4 sm:grid-cols-[150px_1fr]">
-        <Field label="Número">
+        <Field label="Número" obrigatorio={obr("numero")}>
           <Input {...texto("numero")} ref={numero} />
         </Field>
-        <Field label="Complemento">
+        <Field label="Complemento" obrigatorio={obr("complemento")}>
           <Input {...texto("complemento")} autoComplete="address-line2" />
         </Field>
       </div>
       <div className="grid gap-4 sm:grid-cols-[1fr_1fr_80px]">
-        <Field label="Bairro">
+        <Field label="Bairro" obrigatorio={obr("bairro")}>
           <Input {...texto("bairro")} />
         </Field>
-        <Field label="Cidade">
+        <Field label="Cidade" obrigatorio={obr("cidade")}>
           <Input {...texto("cidade")} autoComplete="address-level2" />
         </Field>
-        <Field label="UF">
+        <Field label="UF" obrigatorio={obr("uf")}>
           <Input
             className="h-9 uppercase"
             maxLength={2}

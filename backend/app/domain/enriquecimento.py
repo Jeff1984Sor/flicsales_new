@@ -50,7 +50,7 @@ _EMPRESA = (
     Campo("segmento", "Segmento", max_len=100),
     Campo("porte", "Porte", max_len=30),
     Campo("site", "Site", "site", max_len=300),
-    Campo("email_financeiro", "E-mail financeiro", "email"),
+    # "E-mail financeiro" saiu da tela (contrato Núcleo parte 2, §1): a coluna fica no banco, a IA não sugere mais
     Campo("telefone", "Telefone", "telefone"),
     Campo("origem", "Origem", max_len=100),
     Campo("observacoes", "Observações", "texto_longo", max_len=4000),
@@ -76,6 +76,10 @@ CAMPOS_FIXOS: dict[str, tuple[Campo, ...]] = {
         Campo("unidade", "Unidade", max_len=30),
         Campo("preco_referencia", "Preço de referência", "dinheiro"),
         Campo("recorrente", "Recorrente", "sim_nao"),
+        # recorrência (contrato Núcleo parte 2, §3); desconto NÃO entra: a IA não sugere desconto
+        Campo("frequencia", "Frequência", "opcao", opcoes=("diaria", "semanal", "mensal", "semestral", "anual")),
+        Campo("intervalo", "Intervalo (a cada N)", "numero"),
+        Campo("dias_semana", "Dias da semana", "multipla", opcoes=("seg", "ter", "qua", "qui", "sex", "sab", "dom")),
         Campo("descricao", "Descrição", "texto_longo", max_len=4000),
     ),
     "categoria": (
@@ -94,7 +98,7 @@ CAMPOS_FIXOS: dict[str, tuple[Campo, ...]] = {
 }
 
 # objeto do enriquecimento → objeto dos campos personalizados (CampoCustom.objeto)
-OBJETO_CUSTOM = {"empresa": "empresa", "fornecedor": "empresa", "pessoa": "pessoa"}
+OBJETO_CUSTOM = {"empresa": "empresa", "fornecedor": "empresa", "pessoa": "pessoa", "produto": "produto"}
 PREFIXO_CUSTOM = "campos_custom."
 # tipo do campo personalizado → tipo do enriquecimento (seleção múltipla = lista de opções; hiperlink = site/url)
 _TIPO_CUSTOM = {"texto": "texto", "numero": "numero", "moeda": "moeda", "data": "data", "sim_nao": "sim_nao",

@@ -212,6 +212,10 @@ class OpcaoCampo(BaseModel):
     tipo: str
     objeto: str
     opcoes: list[str] = []
+    # exibir na etapa (oportunidade): aparece no funil `exibir_funil_id` quando a etapa tem ordem ≥ exibir_etapa_ordem
+    exibir_funil_id: int | None = None
+    exibir_etapa_id: int | None = None
+    exibir_etapa_ordem: int | None = None
 
 
 class OpcoesComerciais(BaseModel):
@@ -584,6 +588,7 @@ class ModeloCriar(BaseModel):
     assunto: str | None = Field(default=None, max_length=200)
     conteudo: str = Field(min_length=1)
     status: Literal["rascunho", "revisado"] = "rascunho"
+    classificacao: Literal["comercial", "financeiro", "geral"] = "comercial"
 
 
 class ModeloAtualizar(BaseModel):
@@ -593,6 +598,7 @@ class ModeloAtualizar(BaseModel):
     assunto: str | None = Field(default=None, max_length=200)
     conteudo: str | None = Field(default=None, min_length=1)
     status: Literal["rascunho", "revisado"] | None = None
+    classificacao: Literal["comercial", "financeiro", "geral"] | None = None
     ativo: bool | None = None
 
 
@@ -601,6 +607,7 @@ class ModeloOut(Schema):
     nome: str
     canal: str
     finalidade: str
+    classificacao: str = "comercial"
     assunto: str | None
     conteudo: str
     status: str

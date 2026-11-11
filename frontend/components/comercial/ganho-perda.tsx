@@ -3,15 +3,18 @@
 /**
  * GanhoDrawer — "Revisar fechamento" (protótipo `winForm`/`confirmWin`): prepara recebíveis em RASCUNHO e leva a
  * Financeiro › A receber. Não registra pagamento nem movimenta o caixa.
- * PerdaDrawer — perda com motivo obrigatório + concorrente + data de possível retomada. Nada é excluído.
+ * PerdaDrawer — perda com motivo obrigatório (lista da Governança de ajustes + "Outro" com texto livre) + concorrente +
+ *   data de possível retomada. Nada é excluído. Sem a lista no servidor, o motivo é texto livre.
  */
 import { useMutation } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 import { CampoDrawer, Drawer } from "@/components/flic/drawer";
 import { NativeSelect } from "@/components/flic/form";
 import { notificar } from "@/components/flic/toast";
+import { useOpcoesLista } from "@/components/governanca/opcoes-lista";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -91,6 +94,9 @@ export function GanhoDrawer({ oportunidade: o, aberto, onFechar }: { oportunidad
   );
 }
 
+/** valor do "Outro" no select de motivos (nunca colide com um nome da lista) */
+const OUTRO = "__outro__";
+
 export function PerdaDrawer({
   oportunidade: o,
   aberto,
@@ -103,33 +109,57 @@ export function PerdaDrawer({
   aoPerder?: () => void;
 }) {
   const invalidar = useInvalidarComercial();
+  const { opcoes: motivos } = useOpcoesLista("motivo_perda");
+  const [escolha, setEscolha] = useState("");
+  const comLista = motivos.length > 0;
+  const outro = !comLista || escolha === OUTRO;
+  const fechar = () => {
+    setEscolha("");
+    onFechar();
+  };
   const perder = useMutation({
     mutationFn: (corpo: Record<string, unknown>) => api.post<Oportunidade>(`/comercial/oportunidades/${o?.id}/perder`, corpo),
     onSuccess: () => {
       invalidar();
       notificar("Oportunidade encerrada como perdida. O histórico foi mantido.");
       aoPerder?.();
-      onFechar();
+      fechar();
     },
   });
 
   function enviar(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = lerForm(e.currentTarget);
-    if (!f.motivo.trim()) {
-      notificar("Informe o motivo da perda");
+    const motivo = outro ? (f.motivo ?? "").trim() : escolha;
+    if (!motivo) {
+      notificar(outro ? "Descreva o motivo da perda" : "Escolha o motivo da perda");
       return;
     }
-    perder.mutate({ motivo: f.motivo.trim(), concorrente: nulo(f.concorrente), data_retomada: nulo(f.data_retomada) });
+    perder.mutate({ motivo, concorrente: nulo(f.concorrente), data_retomada: nulo(f.data_retomada) });
   }
 
   return (
-    <Drawer aberto={aberto && !!o} onFechar={onFechar} titulo="Registrar perda" descricao={o ? `${o.empresa_nome ?? "Sem empresa"} · ${o.titulo}` : undefined}>
+    <Drawer aberto={aberto && !!o} onFechar={fechar} titulo="Registrar perda" descricao={o ? `${o.empresa_nome ?? "Sem empresa"} · ${o.titulo}` : undefined}>
       {aberto && o && (
         <form onSubmit={enviar}>
-          <CampoDrawer rotulo="Motivo da perda" obrigatorio>
-            <Textarea name="motivo" required />
-          </CampoDrawer>
+          {comLista && (
+            <CampoDrawer rotulo="Motivo da perda" obrigatorio>
+              <NativeSelect value={escolha} onChange={(e) => setEscolha(e.target.value)} required>
+                <option value="">Escolha o motivo</option>
+                {motivos.map((m) => (
+                  <option key={m.id} value={m.nome}>
+                    {m.nome}
+                  </option>
+                ))}
+                <option value={OUTRO}>Outro</option>
+              </NativeSelect>
+            </CampoDrawer>
+          )}
+          {outro && (
+            <CampoDrawer rotulo={comLista ? "Qual motivo?" : "Motivo da perda"} obrigatorio>
+              <Textarea name="motivo" required />
+            </CampoDrawer>
+          )}
           <CampoDrawer rotulo="Concorrente">
             <Input name="concorrente" maxLength={200} />
           </CampoDrawer>

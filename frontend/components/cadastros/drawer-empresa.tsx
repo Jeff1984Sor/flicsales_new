@@ -5,7 +5,9 @@
  * `companyDetail`/`updateCompanyOps`). Nova: "Cadastro de empresa" (o nome basta). Existente: relacionamentos
  * (oportunidades, recebíveis), contatos com "Novo contato", formulário completo, "Analisar cadastro" e Inativar/Reativar.
  * Renomear atualiza todos os módulos (os vínculos são por id). CNPJ com "Buscar CNPJ" (preenche só campos vazios e avisa
- * se o CNPJ já existe), endereço estruturado com busca de CEP e "✧ Enriquecer com IA".
+ * se o CNPJ já existe), endereço estruturado com busca de CEP e "✧ Enriquecer com IA". Segmento e Porte vêm das listas da
+ * Governança de ajustes; os campos padrões seguem a configuração de "Campos de dados" (visível / obrigatório).
+ * Painel com largura "metade" (metade da tela, mínimo 640px).
  *
  * Props:
  *  - `aberto: boolean`  `onFechar: () => void`
@@ -34,7 +36,9 @@ import { ORIGENS_EMPRESA, PAPEIS, type ConsultaCnpj, type EmpresaDetalhe, type E
 import { cn } from "@/lib/utils";
 
 import { CampoCnpj, erroDeDocumento, erroDocumentoLocal, preencherVazios } from "./campo-cnpj";
+import { useCamposPadroes } from "./campos-padroes";
 import { CamposPersonalizados } from "./campos-personalizados";
+import { SelectLista } from "./listas";
 import { AnexosEmpresa, DadosReceita, QuadroSocietario, aplicarCnpj } from "./empresa-extras";
 import { dadosParaIA, mesclarSugestoes } from "./consultas";
 import { BlocoEndereco, enderecoDe, type ValorEndereco } from "./endereco";
@@ -49,7 +53,6 @@ interface FormEmpresa extends ValorEndereco {
   segmento: string;
   porte: string;
   site: string;
-  email_financeiro: string;
   telefone: string;
   responsavel_id: number | null;
   papeis: Papel[];
@@ -66,7 +69,6 @@ function formDe(e: EmpresaDetalhe | undefined, nome = "", papeis: Papel[] = ["pr
     segmento: txt(e?.segmento),
     porte: txt(e?.porte),
     site: txt(e?.site),
-    email_financeiro: txt(e?.email_financeiro),
     telefone: txt(e?.telefone),
     ...enderecoDe(e),
     responsavel_id: e?.responsavel_id ?? null,
@@ -110,7 +112,6 @@ const ROTULOS: Record<string, string> = {
   segmento: "Segmento",
   porte: "Porte",
   site: "Site",
-  email_financeiro: "E-mail financeiro",
   telefone: "Telefone",
   cep: "CEP",
   logradouro: "Logradouro",
@@ -126,7 +127,7 @@ const ROTULOS: Record<string, string> = {
 /** Campos do formulário que o CNPJ pode preencher (só se estiverem vazios). */
 function mapaCnpj(r: ConsultaCnpj): Partial<Record<keyof FormEmpresa, [string, string | null | undefined]>> {
   const m: Partial<Record<keyof FormEmpresa, [string, string | null | undefined]>> = {};
-  const campos = ["nome", "nome_fantasia", "segmento", "porte", "telefone", "email_financeiro", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf"] as const;
+  const campos = ["nome", "nome_fantasia", "segmento", "porte", "telefone", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf"] as const;
   for (const k of campos) m[k] = [ROTULOS[k], r[k]];
   return m;
 }
@@ -154,7 +155,8 @@ function Formulario({
   const [f, setF] = useState(inicial);
   const [erroDocLocal, setErroDocLocal] = useState<string | null>(null);
   const set = <K extends keyof FormEmpresa>(k: K, v: FormEmpresa[K]) => setF((x) => ({ ...x, [k]: v }));
-  const campo = (k: "nome" | "nome_fantasia" | "segmento" | "porte" | "site" | "email_financeiro" | "telefone") => ({
+  const cp = useCamposPadroes("empresa");
+  const campo = (k: "nome" | "nome_fantasia" | "site" | "telefone") => ({
     value: f[k],
     disabled: desabilitado,
     className: "h-9",
@@ -170,6 +172,11 @@ function Formulario({
         const local = erroDocumentoLocal(f.documento);
         setErroDocLocal(local);
         if (local) return;
+        const falta = cp.faltando({ ...f }, ROTULOS);
+        if (falta) {
+          notificar.erro(`Preencha ${falta}.`);
+          return;
+        }
         const atual = paraEnvio(f) as EmpresaEntrada;
         onSalvar(empresa ? alterados<EmpresaEntrada>(paraEnvio(inicial) as EmpresaEntrada, atual) : atual);
       }}
@@ -185,50 +192,63 @@ function Formulario({
       <Field label="Nome / razão social" obrigatorio>
         <Input {...campo("nome")} required autoFocus={!empresa} />
       </Field>
-      <CampoCnpj
-        valor={f.documento}
-        onChange={(v) => {
-          set("documento", v);
-          setErroDocLocal(null);
-          onLimparErroDocumento?.();
-        }}
-        erroExterno={erroDocLocal ?? erroDocumento}
-        disabled={desabilitado}
-        automatico={!empresa}
-        registroId={empresa?.id ?? null}
-        onAbrirExistente={onAbrirExistente}
-        onResultado={(r) => {
-          const { form, preenchidos } = preencherVazios(f, mapaCnpj(r));
-          setF(form);
-          return preenchidos;
-        }}
-      />
+      {cp.visivel("documento") && (
+        <CampoCnpj
+          obrigatorio={cp.obrigatorio("documento")}
+          valor={f.documento}
+          onChange={(v) => {
+            set("documento", v);
+            setErroDocLocal(null);
+            onLimparErroDocumento?.();
+          }}
+          erroExterno={erroDocLocal ?? erroDocumento}
+          disabled={desabilitado}
+          automatico={!empresa}
+          registroId={empresa?.id ?? null}
+          onAbrirExistente={onAbrirExistente}
+          onResultado={(r) => {
+            const { form, preenchidos } = preencherVazios(f, mapaCnpj(r));
+            setF(form);
+            return preenchidos;
+          }}
+        />
+      )}
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Nome fantasia">
-          <Input {...campo("nome_fantasia")} />
-        </Field>
-        <Field label="Segmento">
-          <Input {...campo("segmento")} />
-        </Field>
-        <Field label="Porte">
-          <Input {...campo("porte")} />
-        </Field>
-        <Field label="Site">
-          <Input {...campo("site")} type="url" placeholder="https://" />
-        </Field>
-        <Field label="E-mail financeiro">
-          <Input {...campo("email_financeiro")} type="email" />
-        </Field>
-        <Field label="Telefone">
-          <Input {...campo("telefone")} />
-        </Field>
-        <Field label="Responsável">
-          <SeletorResponsavel valor={f.responsavel_id} onChange={(v) => set("responsavel_id", v)} disabled={desabilitado} />
-        </Field>
+        {cp.visivel("nome_fantasia") && (
+          <Field label="Nome fantasia" obrigatorio={cp.obrigatorio("nome_fantasia")}>
+            <Input {...campo("nome_fantasia")} />
+          </Field>
+        )}
+        {cp.visivel("segmento") && (
+          <Field label="Segmento" obrigatorio={cp.obrigatorio("segmento")}>
+            <SelectLista tipo="segmento" valor={f.segmento} onChange={(v) => set("segmento", v)} disabled={desabilitado} />
+          </Field>
+        )}
+        {cp.visivel("porte") && (
+          <Field label="Porte" obrigatorio={cp.obrigatorio("porte")}>
+            <SelectLista tipo="porte" valor={f.porte} onChange={(v) => set("porte", v)} disabled={desabilitado} />
+          </Field>
+        )}
+        {cp.visivel("site") && (
+          <Field label="Site" obrigatorio={cp.obrigatorio("site")}>
+            <Input {...campo("site")} type="url" placeholder="https://" />
+          </Field>
+        )}
+        {cp.visivel("telefone") && (
+          <Field label="Telefone" obrigatorio={cp.obrigatorio("telefone")}>
+            <Input {...campo("telefone")} />
+          </Field>
+        )}
+        {cp.visivel("responsavel_id") && (
+          <Field label="Responsável" obrigatorio={cp.obrigatorio("responsavel_id")}>
+            <SeletorResponsavel valor={f.responsavel_id} onChange={(v) => set("responsavel_id", v)} disabled={desabilitado} />
+          </Field>
+        )}
       </div>
       <BlocoEndereco
         valor={f}
         disabled={desabilitado}
+        obrigatorio={cp.obrigatorio}
         onChange={(p) => setF((x) => ({ ...x, ...p }))}
         dica={
           empresa?.endereco && !f.logradouro
@@ -239,20 +259,24 @@ function Formulario({
       <Field label="Papéis">
         <ChipsPapeis valor={f.papeis} onChange={(v) => set("papeis", v)} disabled={desabilitado} />
       </Field>
-      <Field label="Origem" dica="Canal de entrada do relacionamento">
-        <NativeSelect value={f.origem} disabled={desabilitado} onChange={(e) => set("origem", e.target.value)}>
-          <option value="">Selecionar</option>
-          {f.origem && !(ORIGENS_EMPRESA as readonly string[]).includes(f.origem) && <option value={f.origem}>{f.origem}</option>}
-          {ORIGENS_EMPRESA.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </NativeSelect>
-      </Field>
-      <Field label="Observações">
-        <Textarea value={f.observacoes} disabled={desabilitado} onChange={(e) => set("observacoes", e.target.value)} />
-      </Field>
+      {cp.visivel("origem") && (
+        <Field label="Origem" dica="Canal de entrada do relacionamento" obrigatorio={cp.obrigatorio("origem")}>
+          <NativeSelect value={f.origem} disabled={desabilitado} onChange={(e) => set("origem", e.target.value)}>
+            <option value="">Selecionar</option>
+            {f.origem && !(ORIGENS_EMPRESA as readonly string[]).includes(f.origem) && <option value={f.origem}>{f.origem}</option>}
+            {ORIGENS_EMPRESA.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </NativeSelect>
+        </Field>
+      )}
+      {cp.visivel("observacoes") && (
+        <Field label="Observações" obrigatorio={cp.obrigatorio("observacoes")}>
+          <Textarea value={f.observacoes} disabled={desabilitado} onChange={(e) => set("observacoes", e.target.value)} />
+        </Field>
+      )}
       <CamposPersonalizados objeto="empresa" valores={f.campos_custom} onChange={(v) => set("campos_custom", v)} somenteLeitura={desabilitado} />
     </form>
   );
@@ -339,6 +363,7 @@ export function DrawerEmpresa({
       <Drawer
         aberto={aberto}
         onFechar={onFechar}
+        largura="metade"
         rotulo={empresaId == null ? undefined : "EMPRESA / CADASTRO ÚNICO"}
         titulo={empresaId == null ? "Cadastro de empresa" : (e?.nome ?? "Carregando…")}
         descricao={

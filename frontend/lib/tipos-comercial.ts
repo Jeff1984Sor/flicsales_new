@@ -431,11 +431,22 @@ export const FINALIDADES_MODELO: { valor: FinalidadeModelo; rotulo: string }[] =
   { valor: "renovacao", rotulo: "Renovação" },
 ];
 
+/** Classificação do modelo: Comercial lista comercial+geral; Financeiro (cobranças) lista financeiro+geral. */
+export type ClassificacaoModelo = "comercial" | "financeiro" | "geral";
+
+export const CLASSIFICACOES_MODELO: { valor: ClassificacaoModelo; rotulo: string }[] = [
+  { valor: "comercial", rotulo: "Comercial" },
+  { valor: "financeiro", rotulo: "Financeiro" },
+  { valor: "geral", rotulo: "Geral" },
+];
+
 export interface ModeloComunicacao {
   id: number;
   nome: string;
   canal: CanalModelo;
   finalidade: FinalidadeModelo;
+  /** ausente enquanto o backend não publicar a coluna: trate como "comercial" */
+  classificacao?: ClassificacaoModelo;
   assunto: string | null;
   conteudo: string;
   status: "rascunho" | "revisado";

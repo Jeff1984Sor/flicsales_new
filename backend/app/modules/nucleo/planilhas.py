@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.core import audit
 from app.core.models import Usuario
-from app.domain import RegraViolada
+from app.domain import RegraViolada, contatos
 from app.domain import planilha as cel
 from app.domain.cadastro import (
     BASES_LEGAIS,
@@ -47,6 +47,7 @@ from app.domain.cadastro import (
     validar_uf,
 )
 from app.domain.caixa import validar_edicao_conta
+from app.domain.produto import DIAS_SEMANA, validar_desconto, validar_recorrencia
 from app.modules.nucleo import servico
 from app.modules.nucleo.models import CampoCustom, Categoria, CentroCusto, ContaFinanceira, Empresa, Pessoa, Produto
 from app.modules.nucleo.regras import SEPARADOR_MULTIPLA, DefCampo, normalizar_valor
@@ -73,6 +74,8 @@ class Coluna:
     ajuda: str = ""
     minimo: Decimal | None = None
     campo_custom: DefCampo | None = None
+    # coluna antiga: a importação ainda aceita (sem erro), mas ela não aparece mais no modelo para baixar
+    legada: bool = False
 
     @property
     def mapa_opcoes(self) -> dict[str, str]:
@@ -86,6 +89,10 @@ TIPOS_PRODUTO = (("Serviço", "servico"), ("Produto", "produto"))
 NATUREZAS = (("Receita", "receita"), ("Despesa", "despesa"))
 BASES = tuple((r, v) for v, r in BASES_LEGAIS.items())
 PERMISSOES = tuple((r, v) for v, r in PERMISSOES_COMUNICACAO.items())
+TIPOS_DESCONTO = (("Percentual", "percentual"), ("Valor", "valor"))
+FREQUENCIAS = (("Diária", "diaria"), ("Semanal", "semanal"), ("Mensal", "mensal"), ("Semestral", "semestral"),
+               ("Anual", "anual"))
+DIAS = tuple((d, d) for d in DIAS_SEMANA)
 
 ENDERECO = (
     Coluna("CEP", "cep", "cep", formato="00000-000", exemplo="01310-100"),
@@ -109,7 +116,7 @@ def _colunas_fixas(objeto: str) -> tuple[Coluna, ...]:
             Coluna("Segmento", "segmento", max_len=100, exemplo="Consultoria"),
             Coluna("Porte", "porte", max_len=30, exemplo="EPP"),
             Coluna("Site", "site", max_len=300, exemplo="https://aurora.com.br"),
-            Coluna("E-mail financeiro", "email_financeiro", "email", max_len=200, exemplo="financeiro@aurora.com.br"),
+            Coluna("E-mail financeiro", "email_financeiro", "email", max_len=200, legada=True),
             Coluna("Telefone", "telefone", max_len=30, exemplo="(11) 3333-4444"),
             Coluna("Papéis", "papeis", "papeis", opcoes=PAPEIS, formato="prospect, cliente, fornecedor, parceiro",
                    exemplo="cliente", ajuda="Um ou mais, separados por vírgula. Papéis informados são acrescentados "
@@ -126,7 +133,7 @@ def _colunas_fixas(objeto: str) -> tuple[Coluna, ...]:
                    exemplo="11.222.333/0001-81"),
             Coluna("Contato", "contato", max_len=200, exemplo="Joana Lima",
                    ajuda="Cria a pessoa de contato na empresa, se ainda não existir."),
-            Coluna("E-mail", "email_financeiro", "email", max_len=200, exemplo="contas@nuvem.com.br"),
+            Coluna("E-mail", "email_financeiro", "email", max_len=200, legada=True),
             Coluna("Telefone", "telefone", max_len=30, exemplo="(11) 98888-7777"),
             Coluna("Categoria padrão", "categoria_padrao", max_len=120, exemplo="Estrutura",
                    ajuda="Nome de uma categoria de DESPESA já cadastrada."),
@@ -141,8 +148,16 @@ def _colunas_fixas(objeto: str) -> tuple[Coluna, ...]:
                    ajuda="Nome da empresa. Se não existir, é criada (o nome basta)."),
             Coluna("Cargo", "cargo", max_len=120, exemplo="Diretora de operações"),
             Coluna("E-mail", "email", "email", max_len=200, exemplo="paula@aurora.com.br",
-                   ajuda="Com e-mail, a linha atualiza a pessoa que já tem esse e-mail."),
-            Coluna("Telefone", "telefone", max_len=30, exemplo="(11) 97777-6666"),
+                   ajuda="E-mail principal. Com e-mail, a linha atualiza a pessoa que já tem esse e-mail."),
+            Coluna("E-mails adicionais", "emails_adicionais", "lista_texto", formato="Separados por ;",
+                   exemplo="paula.pessoal@gmail.com",
+                   ajuda="Outros e-mails da pessoa, separados por ponto e vírgula. Célula preenchida substitui os "
+                         "e-mails adicionais atuais (o principal fica)."),
+            Coluna("Telefone", "telefone", max_len=30, exemplo="(11) 97777-6666", ajuda="Telefone principal."),
+            Coluna("Telefones adicionais", "telefones_adicionais", "lista_texto", formato="Separados por ;",
+                   exemplo="(11) 3333-4444",
+                   ajuda="Outros telefones, separados por ponto e vírgula. Célula preenchida substitui os telefones "
+                         "adicionais atuais (o principal fica)."),
             Coluna("Canal preferido", "canal_preferido", "opcao", opcoes=CANAIS, formato="E-mail, Ligação ou WhatsApp",
                    exemplo="E-mail"),
             Coluna("Observações", "observacoes"),
@@ -169,6 +184,17 @@ def _colunas_fixas(objeto: str) -> tuple[Coluna, ...]:
             Coluna("Preço de referência", "preco_referencia", "decimal", formato="1.234,56", exemplo="24.000,00",
                    minimo=Decimal("0")),
             Coluna("Recorrente", "recorrente", "sim_nao", opcoes=SIM_NAO, formato="Sim ou Não", exemplo="Não"),
+            Coluna("Frequência", "frequencia", "opcao", opcoes=FREQUENCIAS,
+                   formato="Diária, Semanal, Mensal, Semestral ou Anual", exemplo="",
+                   ajuda="Só para recorrente (sem frequência, vale Mensal)."),
+            Coluna("Intervalo", "intervalo", "inteiro", formato="Número inteiro (a cada N)", exemplo="",
+                   ajuda="A cada N dias/semanas/meses/anos (padrão 1; semestral é sempre 1)."),
+            Coluna("Dias da semana", "dias_semana", "papeis", opcoes=DIAS, formato="seg, ter, qua, qui, sex, sab, dom",
+                   exemplo="", ajuda="Obrigatório na frequência semanal. Separe por vírgula ou ponto e vírgula."),
+            Coluna("Tipo de desconto", "desconto_tipo", "opcao", opcoes=TIPOS_DESCONTO, formato="Percentual ou Valor",
+                   exemplo="", ajuda="Desconto padrão: preencha o tipo e o valor juntos."),
+            Coluna("Desconto", "desconto_valor", "decimal", formato="1.234,56 ou 10 (%)", exemplo="",
+                   minimo=Decimal("0"), ajuda="Percentual de 0 a 100, ou valor até o preço de referência."),
             Coluna("Descrição", "descricao", exemplo="Projeto de consultoria estratégica."),
         )
     if objeto == "categorias":
@@ -203,7 +229,7 @@ OBJETOS: dict[str, dict] = {
     "empresas": {"rotulo": "Empresas e clientes", "entidade": "empresa", "custom": "empresa"},
     "fornecedores": {"rotulo": "Fornecedores", "entidade": "empresa", "custom": None},
     "pessoas": {"rotulo": "Pessoas e contatos", "entidade": "pessoa", "custom": "pessoa"},
-    "produtos": {"rotulo": "Produtos e serviços", "entidade": "produto", "custom": None},
+    "produtos": {"rotulo": "Produtos e serviços", "entidade": "produto", "custom": "produto"},
     "categorias": {"rotulo": "Categorias", "entidade": "categoria", "custom": None},
     "centros-custo": {"rotulo": "Centros de custo", "entidade": "centro_custo", "custom": None},
     "contas": {"rotulo": "Contas financeiras", "entidade": "conta_financeira", "custom": None},
@@ -241,7 +267,7 @@ def gerar_modelo(db: Session, objeto: str) -> bytes:
     from openpyxl.utils import get_column_letter
     from openpyxl.worksheet.datavalidation import DataValidation
 
-    cols = colunas(db, objeto)
+    cols = [c for c in colunas(db, objeto) if not c.legada]
     wb = Workbook()
     ws = wb.active
     ws.title = "Dados"
@@ -421,6 +447,13 @@ def _converter(c: Coluna, valor: Any) -> Any:
         return validar_uf(cel.texto(valor))
     if t == "decimal":
         return cel.decimal(valor, minimo=c.minimo)
+    if t == "inteiro":
+        d = cel.decimal(valor, minimo=Decimal("1"))
+        if d != d.to_integral_value():
+            raise RegraViolada("Informe um número inteiro.")
+        return int(d)
+    if t == "lista_texto":
+        return [x.strip() for x in cel.texto(valor).split(";") if x.strip()]
     if t == "data":
         return cel.data(valor)
     if t == "sim_nao":
@@ -669,17 +702,21 @@ class _Importador:
             q = select(Pessoa).where(func.lower(Pessoa.nome) == dados["nome"].lower())
             q = q.where(Pessoa.empresa_id == empresa.id) if empresa else q.where(Pessoa.empresa_id.is_(None))
             alvo = db.scalar(q.order_by(Pessoa.id))
+        emails_extra = dados.pop("emails_adicionais", None)
+        telefones_extra = dados.pop("telefones_adicionais", None)
         if alvo is None:
             with _na_coluna("Nome"):
                 dados["nome"] = validar_nome(dados.get("nome"), o_que="o nome da pessoa")
             with _na_coluna(None):
                 custom = servico.validar_campos_custom(db, "pessoa", custom, None)
+            self._contatos_extras(dados, None, emails_extra, telefones_extra)
             m, end = resolver_endereco_pessoa(marca_atual=True, endereco_atual={}, enviado=endereco, marca_enviada=marca,
                                               endereco_empresa=endereco_de(empresa) if empresa else None)
             p = Pessoa(empresa_id=empresa.id if empresa else None, responsavel_id=self.usuario_id, campos_custom=custom,
                        usa_endereco_da_empresa=m, **end, **dados)
             return self._gravar(n, p, {}, p.nome, novo=True), p.nome
         p = alvo
+        self._contatos_extras(dados, p, emails_extra, telefones_extra)
         if empresa is not None:
             dados["empresa_id"] = empresa.id
         if custom:
@@ -693,9 +730,29 @@ class _Importador:
             dados.update(end, usa_endereco_da_empresa=m)
         return self._gravar(n, p, _mudancas(p, dados), p.nome, novo=False), p.nome
 
+    @staticmethod
+    def _contatos_extras(dados: dict, p: Pessoa | None, emails: list[str] | None,
+                         telefones: list[str] | None) -> None:
+        """E-mail/Telefone = principal; "adicionais" (preenchidos) substituem os demais da lista."""
+        for extra, lista, simples, chave, tipo, normalizar, coluna in (
+                (emails, "emails", "email", "email", "comercial", contatos.normalizar_email, "E-mails adicionais"),
+                (telefones, "telefones", "telefone", "numero", "celular", contatos.normalizar_telefone,
+                 "Telefones adicionais")):
+            if simples not in dados and extra is None:
+                continue
+            atual = list(getattr(p, lista) or []) if p is not None else []
+            if simples in dados:
+                atual = contatos.aplicar_principal(atual, dados[simples], chave, tipo_padrao=tipo)
+            if extra is not None:
+                with _na_coluna(coluna):
+                    atual = contatos.juntar_adicionais(atual, extra, chave, tipo_padrao=tipo, normalizar=normalizar)
+            dados[lista] = atual
+            dados[simples] = contatos.principal_de(atual, chave)
+
     # ------------------------------------------------------------------------------------------- produtos
     def _produtos(self, n: int, dados: dict) -> tuple[str, str]:
         db = self.db
+        custom = _separar_custom(dados)
         alvo = db.scalar(select(Produto).where(Produto.codigo == dados["codigo"])) if dados.get("codigo") else None
         if alvo is None and dados.get("nome"):
             alvo = db.scalar(select(Produto).where(func.lower(Produto.nome) == dados["nome"].lower()))
@@ -713,6 +770,22 @@ class _Importador:
         if dados.get("codigo") and alvo is not None and alvo.codigo != dados["codigo"]:
             if db.scalar(select(Produto.id).where(Produto.codigo == dados["codigo"], Produto.id != alvo.id)):
                 raise ErroLinha("Código", "Já existe produto ou serviço com este código.")
+        def final(campo: str):
+            return dados[campo] if campo in dados else (getattr(alvo, campo) if alvo is not None else None)
+
+        if alvo is None or {"desconto_tipo", "desconto_valor", "preco_referencia"} & dados.keys():
+            with _na_coluna("Desconto"):
+                dados["desconto_tipo"], dados["desconto_valor"] = validar_desconto(
+                    final("desconto_tipo"), final("desconto_valor"), final("preco_referencia"))
+        if alvo is None or {"recorrente", "frequencia", "intervalo", "dias_semana"} & dados.keys():
+            with _na_coluna("Frequência"):
+                r = validar_recorrencia(bool(final("recorrente")), final("frequencia"), final("intervalo"),
+                                        final("dias_semana"))
+            dados.update(frequencia=r.frequencia, intervalo=r.intervalo, dias_semana=r.dias_semana)
+        if custom or alvo is None:
+            with _na_coluna(None):
+                dados["campos_custom"] = servico.validar_campos_custom(db, "produto", custom,
+                                                                       alvo.campos_custom if alvo else None)
         if alvo is None:
             p = Produto(recorrente=bool(dados.pop("recorrente", False)), **dados)
             return self._gravar(n, p, {}, p.nome, novo=True), p.nome

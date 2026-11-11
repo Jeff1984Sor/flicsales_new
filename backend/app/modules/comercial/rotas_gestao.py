@@ -3,7 +3,7 @@
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func, or_, select
 
 from app.core import audit
@@ -13,6 +13,7 @@ from app.domain import RegraViolada
 from app.domain.dinheiro import ZERO, formatar_brl
 from app.domain.funil import ItemForecast, alem_do_limite, forecast_ponderado
 from app.domain.indicadores import FORMULAS, apuracao_meta, ciclo_mediano, conversao, ticket_medio
+from app.domain.modelos_comunicacao import classificacoes_do_filtro
 from app.domain.proposta import exige_aprovacao_desconto, proxima_versao, validar_proposta
 from app.modules.comercial import regras
 from app.modules.comercial import servico as sv
@@ -605,8 +606,12 @@ def _modelo_out(m: ModeloComunicacao) -> ModeloOut:
 
 @router.get("/modelos", response_model=list[ModeloOut])
 def listar_modelos(ctx: Ctx, q: str | None = None, canal: str | None = None, finalidade: str | None = None,
-                   incluir_inativos: bool = False):
-    consulta = select(ModeloComunicacao)
+                   incluir_inativos: bool = False, classificacao: list[str] | None = Query(None),
+                   contexto: str | None = None):
+    """`contexto=comercial` → comercial+geral; `financeiro` → financeiro+geral; `automacoes`/`todos` → todas.
+    `classificacao` aceita repetido ou separado por vírgula (`?classificacao=comercial,geral`)."""
+    consulta = select(ModeloComunicacao).where(ModeloComunicacao.classificacao.in_(
+        classificacoes_do_filtro(classificacao, contexto)))
     if not incluir_inativos:
         consulta = consulta.where(ModeloComunicacao.ativo.is_(True))
     if canal:

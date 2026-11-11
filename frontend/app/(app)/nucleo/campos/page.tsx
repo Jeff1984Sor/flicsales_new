@@ -2,6 +2,6 @@
 
 import { TelaCampos } from "@/components/cadastros";
 
-export default function CamposPersonalizadosPage() {
+export default function CamposDeDadosPage() {
   return <TelaCampos />;
 }

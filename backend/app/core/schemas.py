@@ -118,6 +118,7 @@ class IdentidadeOut(Schema):
     logo_url: str | None = None
     cor_destaque: str | None = None
     assinatura_email: str | None = None
+    assinatura_imagem_url: str | None = None  # GET (logado) devolve a imagem; POST/DELETE em configuracoes.editar
 
 
 class IdentidadeIn(BaseModel):

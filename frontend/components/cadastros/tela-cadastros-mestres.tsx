@@ -1,29 +1,25 @@
 "use client";
 
 /**
- * TelaCadastrosMestres — Núcleo › "Cadastros mestres" (protótipo `masters`): abas Empresas · Pessoas · Produtos e
- * serviços sobre o mesmo cadastro único, e o painel Qualidade dos dados (duplicidades e mesclagem).
- * Lê `?aba=empresas|pessoas|produtos&id=` (links da busca global): envolva a página em <Suspense>.
+ * TelaCadastrosMestres — Núcleo › "Cadastros mestres" (protótipo `masters`): abas Empresas · Pessoas sobre o mesmo
+ * cadastro único, e o painel Qualidade dos dados (duplicidades e mesclagem). Produtos e serviços moram na
+ * Governança de ajustes: `?aba=produtos` leva para lá.
+ * Lê `?aba=empresas|pessoas&id=` (links da busca global): envolva a página em <Suspense>.
  */
-import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import { PageHeader } from "@/components/flic/page-header";
-import { Button } from "@/components/ui/button";
-import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
-import { DrawerEmpresa } from "./drawer-empresa";
 import { QualidadeDados } from "./qualidade-dados";
 import { TelaEmpresas } from "./tela-empresas";
 import { TelaPessoas } from "./tela-pessoas";
-import { TelaProdutos } from "./tela-produtos";
 
-type Aba = "empresas" | "pessoas" | "produtos";
+type Aba = "empresas" | "pessoas";
 const ABAS: { id: Aba; rotulo: string }[] = [
   { id: "empresas", rotulo: "Empresas" },
   { id: "pessoas", rotulo: "Pessoas" },
-  { id: "produtos", rotulo: "Produtos e serviços" },
 ];
 
 /** id numérico do `?id=` da URL (ou null). */
@@ -35,6 +31,15 @@ export function useIdDaUrl() {
 
 export function TelaCadastrosMestres() {
   const params = useSearchParams();
+  const router = useRouter();
+  // links antigos de produto (busca global, favoritos) vão para a Governança de ajustes
+  const produtos = params.get("aba") === "produtos";
+  useEffect(() => {
+    if (!produtos) return;
+    const id = params.get("id");
+    router.replace(`/nucleo/governanca?aba=produtos${id ? `&id=${encodeURIComponent(id)}` : ""}`);
+  }, [produtos, params, router]);
+  if (produtos) return null;
   // a busca global pode trocar ?aba=&id= com a tela já aberta: remonta para abrir o registro pedido
   return <Conteudo key={params.toString()} />;
 }
@@ -44,16 +49,11 @@ function Conteudo() {
   const id = useIdDaUrl();
   const inicial = (ABAS.find((a) => a.id === params.get("aba"))?.id ?? "empresas") as Aba;
   const [aba, setAba] = useState<Aba>(inicial);
-  const [nova, setNova] = useState(false);
-  const { pode } = useAuth();
 
+  // cada aba traz as próprias ações (Importar planilha → + Empresa / + Pessoa)
   return (
     <>
-      <PageHeader
-        titulo="Cadastros mestres"
-        descricao="Uma base única para Comercial e Financeiro."
-        acao={pode("nucleo.cadastros.editar") && <Button onClick={() => setNova(true)}>+ Empresa</Button>}
-      />
+      <PageHeader titulo="Cadastros mestres" descricao="Uma base única para Comercial e Financeiro." />
       <div role="tablist" aria-label="Tipo de cadastro" className="mb-5 flex flex-wrap gap-2">
         {ABAS.map((a) => (
           <button
@@ -74,12 +74,10 @@ function Conteudo() {
       <div role="tabpanel">
         {aba === "empresas" && <TelaEmpresas embutida idInicial={inicial === "empresas" ? id : null} />}
         {aba === "pessoas" && <TelaPessoas embutida idInicial={inicial === "pessoas" ? id : null} />}
-        {aba === "produtos" && <TelaProdutos embutida idInicial={inicial === "produtos" ? id : null} />}
       </div>
       <div className="mt-6">
         <QualidadeDados />
       </div>
-      <DrawerEmpresa aberto={nova} onFechar={() => setNova(false)} empresaId={null} />
     </>
   );
 }

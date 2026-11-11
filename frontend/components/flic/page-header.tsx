@@ -9,10 +9,14 @@
  *  - `acao?: ReactNode`               slot da ação primária (ex.: <Button onClick={novo}>+ Oportunidade</Button>)
  *  - `acoes?: ReactNode`              botões secundários extras (antes do "Perguntar à IA")
  *  - `semIA?: boolean`                esconde o "✧ Perguntar à IA" (telas de configuração)
+ *                                     O botão só aparece nas telas de Comercial e Financeiro (some no Núcleo,
+ *                                     Configurações, Minha conta e Assistente); o "✧ IA unificada" do topo vale em todas.
  *  - `escopoIA?: EscopoIA`            escopo ao abrir o assistente (padrão "Este módulo")
  *  - `icone?`                         ícone opcional à esquerda do título (telas do core)
  *  - `migalhas?`                      ignorado (o breadcrumb é do shell); mantido por compatibilidade com telas portadas
  */
+import { usePathname } from "next/navigation";
+
 import { Button } from "@/components/ui/button";
 import type { EscopoIA } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -39,6 +43,8 @@ export function PageHeader({
   migalhas?: { label: string; href?: string }[];
   className?: string;
 }) {
+  const pathname = usePathname();
+  const comIA = !semIA && /^\/(comercial|financeiro)(\/|$)/.test(pathname);
   return (
     <div className={cn("mb-[25px] flex flex-col items-start justify-between gap-5 md:flex-row md:items-center", className)}>
       <div className="flex min-w-0 items-center gap-3">
@@ -52,10 +58,10 @@ export function PageHeader({
           {descricao && <p className="leading-relaxed text-muted">{descricao}</p>}
         </div>
       </div>
-      {(!semIA || acao || acoes) && (
+      {(comIA || acao || acoes) && (
         <div className="flex flex-wrap items-center gap-2.5">
           {acoes}
-          {!semIA && (
+          {comIA && (
             <Button variant="outline" onClick={() => abrirAssistente(escopoIA)}>
               ✧ Perguntar à IA
             </Button>

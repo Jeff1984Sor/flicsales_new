@@ -1,5 +1,5 @@
 /**
- * Menu do FlicSales OS: 3 módulos (abas do topo) → grupos → itens (lateral escura).
+ * Menu do FlicSales OS: 4 módulos (abas do topo: Comercial · Financeiro · Núcleo · Assistente) → grupos → itens (lateral escura).
  * Ordem e rótulos EXATAMENTE como no protótipo (tabela "O produto em uma tela" do CLAUDE.md).
  *
  * Cada item:
@@ -17,6 +17,7 @@ import {
   ArrowLeftRight,
   BadgeCheck,
   BookOpenCheck,
+  Bot,
   Boxes,
   Building2,
   CalendarCheck,
@@ -36,6 +37,7 @@ import {
   Landmark,
   LayoutGrid,
   ListChecks,
+  ListTree,
   Mail,
   MessagesSquare,
   Network,
@@ -57,7 +59,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-export type ModuloId = "comercial" | "financeiro" | "nucleo";
+export type ModuloId = "comercial" | "financeiro" | "nucleo" | "assistente";
 
 export interface NavItem {
   label: string;
@@ -118,7 +120,6 @@ export const MODULOS: Modulo[] = [
           { label: "Playbooks", href: "/comercial/playbooks", icone: BookOpenCheck, recurso: "comercial.recursos" },
           { label: "Modelos de comunicação", href: "/comercial/modelos", icone: Mail, recurso: "comercial.recursos" },
           { label: "Gestão comercial", href: "/comercial/gestao", icone: Compass, recurso: "comercial.recursos" },
-          { label: "Assistente", href: "/comercial/assistente", icone: Sparkles, recurso: "orquestracao.ia" },
         ],
       },
     ],
@@ -158,7 +159,6 @@ export const MODULOS: Modulo[] = [
           { label: "Centros de custo", href: "/financeiro/centros-custo", icone: LayoutGrid, recurso: "financeiro.cadastros" },
           { label: "Contas financeiras", href: "/financeiro/contas", icone: Landmark, recurso: "financeiro.cadastros" },
           { label: "Gestão financeira", href: "/financeiro/gestao", icone: CircleDollarSign, recurso: "financeiro.cadastros" },
-          { label: "Assistente", href: "/financeiro/assistente", icone: Sparkles, recurso: "orquestracao.ia" },
         ],
       },
     ],
@@ -173,12 +173,30 @@ export const MODULOS: Modulo[] = [
         titulo: "Plataforma",
         itens: [
           { label: "Cadastros mestres", href: "/nucleo/cadastros", icone: Database, recurso: "nucleo.cadastros" },
-          { label: "Campos personalizados", href: "/nucleo/campos", icone: SlidersHorizontal, recurso: "nucleo.campos" },
+          { label: "Campos de dados", href: "/nucleo/campos", icone: SlidersHorizontal, recurso: "nucleo.campos" },
           { label: "Automações", href: "/nucleo/automacoes", icone: Workflow, recurso: "orquestracao.automacoes" },
           { label: "Integrações", href: "/nucleo/integracoes", icone: Plug, recurso: "orquestracao.integracoes" },
           { label: "Administração", href: "/nucleo/administracao", icone: Settings2, recurso: "nucleo.administracao" },
           { label: "Auditoria", href: "/nucleo/historico", icone: History, recurso: "auditoria" },
-          { label: "Assistente", href: "/nucleo/assistente", icone: Sparkles, recurso: "orquestracao.ia" },
+        ],
+      },
+    ],
+  },
+  // ------------------------------------------------------------------ ASSISTENTE (IA unificada)
+  {
+    id: "assistente",
+    nome: "Assistente",
+    inicio: "/assistente",
+    grupos: [
+      {
+        titulo: "IA unificada",
+        itens: [{ label: "Assistente", href: "/assistente", icone: Sparkles, recurso: "orquestracao.ia", exato: true }],
+      },
+      {
+        titulo: "Administração",
+        itens: [
+          { label: "Configurações de IA", href: "/assistente/configuracoes", icone: Bot, recurso: "configuracoes" },
+          { label: "Plano e consumo", href: "/assistente/consumo", icone: Gauge, recurso: "nucleo.administracao" },
         ],
       },
     ],
@@ -193,9 +211,9 @@ export const TELAS_EXTRAS: (NavItem & { modulo: ModuloId; grupo: string })[] = [
   { label: "Arquitetura e escopo", href: "/nucleo/arquitetura", icone: Network, modulo: "nucleo", grupo: "Plataforma" },
   { label: "Usuários", href: "/configuracoes/usuarios", icone: Users, recurso: "nucleo.administracao", modulo: "nucleo", grupo: "Configurações" },
   { label: "Perfis de acesso", href: "/configuracoes/perfis", icone: ShieldCheck, recurso: "nucleo.administracao", modulo: "nucleo", grupo: "Configurações" },
-  // Identidade e IA abrem pelos cards da Administração (fora das abas de Configurações)
+  // Identidade e Governança abrem pelos cards da Administração (fora das abas de Configurações)
   { label: "Identidade", href: "/configuracoes/identidade", icone: Palette, recurso: "configuracoes", modulo: "nucleo", grupo: "Administração" },
-  { label: "Inteligência Artificial", href: "/configuracoes/ia", icone: Sparkles, recurso: "configuracoes", modulo: "nucleo", grupo: "Administração" },
+  { label: "Governança de ajustes", href: "/nucleo/governanca", icone: ListTree, recurso: "nucleo.administracao", modulo: "nucleo", grupo: "Administração" },
   { label: "E-mail", href: "/configuracoes/email", icone: Mail, recurso: "configuracoes", modulo: "nucleo", grupo: "Configurações" },
   { label: "Configurações", href: "/configuracoes", icone: Settings2, recurso: "configuracoes", modulo: "nucleo", grupo: "Configurações", exato: true },
   { label: "Minha conta", href: "/minha-conta", icone: ListChecks, modulo: "nucleo", grupo: "Conta" },
@@ -207,6 +225,7 @@ export function moduloPorId(id: ModuloId): Modulo {
 
 /** Módulo dono de uma rota (Configurações e Minha conta ficam no Núcleo). */
 export function moduloDaRota(pathname: string): ModuloId {
+  if (pathname === "/assistente" || pathname.startsWith("/assistente/")) return "assistente";
   if (pathname === "/financeiro" || pathname.startsWith("/financeiro/")) return "financeiro";
   if (/^\/(nucleo|configuracoes|minha-conta)(\/|$)/.test(pathname)) return "nucleo";
   return "comercial";

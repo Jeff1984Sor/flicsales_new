@@ -3,7 +3,7 @@
 /**
  * RespostaIA — corpo da resposta no formato único (protótipo `aiText`): título, análise, "Próxima ação sugerida",
  * bloco fonte/evidência/limite, ações sugeridas e o aviso de IA desligada (leitura por regras) com link para
- * Configurações › IA. Usado no drawer do assistente e na tela Assistente.
+ * Assistente › Configurações de IA. Usado no drawer do assistente e na tela Assistente.
  */
 import Link from "next/link";
 
@@ -16,8 +16,8 @@ export function AvisoIADesligada({ className }: { className?: string }) {
   return (
     <p className={className ?? "text-xs text-muted"}>
       IA desligada: leitura calculada pelas regras do produto.{" "}
-      <Link href="/configuracoes/ia" className="font-medium text-primary underline-offset-2 hover:underline">
-        Configurar em Configurações › IA
+      <Link href="/assistente/configuracoes" className="font-medium text-primary underline-offset-2 hover:underline">
+        Configurar em Assistente › Configurações de IA
       </Link>
     </p>
   );

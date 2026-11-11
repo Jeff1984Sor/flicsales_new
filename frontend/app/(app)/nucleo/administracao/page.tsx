@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * Núcleo › Administração (protótipo `admin()`): cartões de governança. Levam às Configurações (Usuários, Perfis,
- * E-mail), à Identidade, à Configuração da IA, aos Cadastros mestres (Qualidade dos dados) e ao Plano e consumo.
- * A Auditoria fica no menu lateral do Núcleo.
+ * Núcleo › Administração (protótipo `admin()`): cartões de governança, nesta ordem: Usuários e perfis · Identidade ·
+ * Categorias e contas · Qualidade dos dados · Governança de ajustes. Configuração da IA e Plano e consumo moram no
+ * módulo Assistente; a Auditoria fica no menu lateral do Núcleo.
  */
-import { ChevronRight, Database, FolderTree, Gauge, Palette, ShieldCheck, Sparkles, type LucideIcon } from "lucide-react";
+import { ChevronRight, Database, FolderTree, ListTree, Palette, ShieldCheck, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 
 import { Etiqueta } from "@/components/flic/etiqueta";
@@ -23,10 +23,15 @@ interface Cartao {
 const CARTOES: Cartao[] = [
   { titulo: "Usuários e perfis", texto: "Quem entra, com qual perfil e escopo de registros. E-mail de envio.", icone: ShieldCheck, href: "/configuracoes/usuarios", recurso: "nucleo.administracao" },
   { titulo: "Identidade", texto: "Nome, logo, cores e assinatura padrão de e-mail.", icone: Palette, href: "/configuracoes/identidade", recurso: "configuracoes" },
-  { titulo: "Configuração da IA", texto: "Provedor, modelo e chave cifrada. Sem IA, o produto segue útil.", icone: Sparkles, href: "/configuracoes/ia", recurso: "configuracoes" },
   { titulo: "Categorias e contas", texto: "Plano de categorias, centros de custo e contas financeiras.", icone: FolderTree, href: "/financeiro/categorias", recurso: "financeiro.cadastros" },
   { titulo: "Qualidade dos dados", texto: "Duplicidades e mesclagem revisada, preservando vínculos.", icone: Database, href: "/nucleo/cadastros", recurso: "nucleo.cadastros" },
-  { titulo: "Plano e consumo", texto: "Uso de IA e limites da organização.", icone: Gauge, href: "/nucleo/administracao/consumo", recurso: "nucleo.administracao" },
+  {
+    titulo: "Governança de ajustes",
+    texto: "Segmentos, portes, motivos de perda, produtos e serviços e modelos de e-mail.",
+    icone: ListTree,
+    href: "/nucleo/governanca",
+    recurso: "nucleo.administracao",
+  },
 ];
 
 export default function AdministracaoPage() {

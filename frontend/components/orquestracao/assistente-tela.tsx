@@ -1,21 +1,22 @@
 "use client";
 
 /**
- * Tela "Assistente" dos 3 módulos (protótipo `assistant()`): porta de entrada da IA unificada.
- * Atalhos abrem o drawer JÁ perguntando: Analisar este módulo · Relacionar vendas e caixa · Priorizar minha semana.
- * Mostra se a IA está ligada (senão: leitura por regras + link para Configurações › IA) e a leitura do momento do módulo.
+ * Módulo Assistente › "Assistente" (protótipo `assistant()`): chat universal da IA unificada, escopo "Toda a FlicSales".
+ * Atalhos abrem o drawer JÁ perguntando: Analisar a operação · Relacionar vendas e caixa · Priorizar minha semana.
+ * Mostra se a IA está ligada (senão: leitura por regras + link para Configurações de IA) e a leitura do momento,
+ * com escolha da área (Comercial · Financeiro · Núcleo).
  */
 import { useQuery } from "@tanstack/react-query";
-import { usePathname } from "next/navigation";
+import { useState } from "react";
 
 import { Fonte } from "@/components/flic/fonte";
-import { moduloDaRota } from "@/components/flic/nav";
 import { PageHeader } from "@/components/flic/page-header";
 import { Painel } from "@/components/flic/painel";
 import { Etiqueta } from "@/components/flic/etiqueta";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type { EstadoIA } from "@/lib/tipos-orquestracao";
 import type { RespostaIA } from "@/lib/types";
 
@@ -23,17 +24,28 @@ import { perguntarAoAssistente } from "./eventos-ia";
 import { AvisoIADesligada, CorpoRespostaIA } from "./resposta-ia";
 
 const ATALHOS = [
-  { rotulo: "Analisar este módulo", escopo: "Este módulo", pergunta: "Analise este módulo: o que merece atenção agora e por quê?" },
+  {
+    rotulo: "Analisar a operação",
+    escopo: "Toda a FlicSales",
+    pergunta: "Analise a operação (Núcleo, Comercial e Financeiro): o que merece atenção agora e por quê?",
+  },
   {
     rotulo: "Relacionar vendas e caixa",
     escopo: "Toda a FlicSales",
     pergunta: "Quais negociações podem afetar os recebimentos e o caixa? Separe potencial comercial de recebível e de saldo.",
   },
-  { rotulo: "Priorizar minha semana", escopo: "Este módulo", pergunta: "Priorize minha semana: quais são as próximas ações mais importantes e por quê?" },
+  { rotulo: "Priorizar minha semana", escopo: "Toda a FlicSales", pergunta: "Priorize minha semana: quais são as próximas ações mais importantes e por quê?" },
 ] as const;
 
+type AreaLeitura = "comercial" | "financeiro" | "nucleo";
+const AREAS: { id: AreaLeitura; rotulo: string }[] = [
+  { id: "comercial", rotulo: "Comercial" },
+  { id: "financeiro", rotulo: "Financeiro" },
+  { id: "nucleo", rotulo: "Núcleo" },
+];
+
 export function AssistenteTela() {
-  const modulo = moduloDaRota(usePathname());
+  const [modulo, setModulo] = useState<AreaLeitura>("comercial");
   const estado = useQuery({
     queryKey: ["orquestracao", "ia", "estado"],
     queryFn: () => api.get<EstadoIA>("/orquestracao/ia/estado"),
@@ -47,7 +59,10 @@ export function AssistenteTela() {
 
   return (
     <>
-      <PageHeader titulo="Uma conversa. Todos os contextos." descricao="Os assistentes especializados trabalham juntos dentro das suas permissões." />
+      <PageHeader
+        titulo="Uma conversa. Todos os contextos."
+        descricao="Pergunte sobre Núcleo, Comercial e Financeiro. Os assistentes especializados trabalham juntos dentro das suas permissões."
+      />
       <div className="card-surface mx-auto my-[35px] max-w-[850px] p-[25px] text-center md:p-[45px]">
         <div className="text-[44px] leading-none text-accent" aria-hidden>
           ✧
@@ -84,6 +99,23 @@ export function AssistenteTela() {
           titulo="Leitura do momento"
           acao={leitura.data ? <Etiqueta tom={leitura.data.origem === "ia" ? "green" : "neutra"}>{leitura.data.origem === "ia" ? "IA" : "Regras"}</Etiqueta> : null}
         >
+          <div role="tablist" aria-label="Área da leitura" className="mb-4 flex flex-wrap gap-2">
+            {AREAS.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                role="tab"
+                aria-selected={modulo === a.id}
+                onClick={() => setModulo(a.id)}
+                className={cn(
+                  "rounded-[7px] border px-3 py-1.5 text-xs transition",
+                  modulo === a.id ? "border-primary bg-primary font-semibold text-primary-foreground" : "border-line bg-surface hover:border-primary",
+                )}
+              >
+                {a.rotulo}
+              </button>
+            ))}
+          </div>
           {leitura.isPending ? (
             <div className="space-y-2">
               <Skeleton className="h-5 w-1/2" />

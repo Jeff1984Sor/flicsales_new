@@ -7,6 +7,10 @@
 - `dependencias_do_campo(db, campo)`  onde um campo personalizado é usado (dashboards, automações, etapas).
 - `propagar_endereco_empresa(db, empresa)`  endereço da empresa mudou → pessoas com `usa_endereco_da_empresa`
   recebem o novo (devolve o que mudou para o chamador auditar como `pessoa.endereco_da_empresa`).
+- `campos_padrao(db, objeto)` / `validar_campos_padrao(db, objeto, valores, criando=)`  campos fixos com a
+  obrigatoriedade/visibilidade configurada em Campos de dados; a validação levanta `RegraViolada` (→ 400). Usada nos
+  POST/PATCH de empresa, pessoa, produto e oportunidade (Comercial).
+- `opcoes_da_lista(db, tipo)` / `garantir_listas_padrao(db)`  listas da Governança (segmento, porte, motivo de perda).
 
 Nenhuma função faz commit: a rota (ou o módulo chamador) audita e confirma.
 """
@@ -22,6 +26,8 @@ from sqlalchemy.orm import Session
 
 from app.core.db import Base
 from app.domain import RegraViolada
+from app.domain import campos_padrao as cp
+from app.domain import listas as dom_listas
 from app.domain.cadastro import (
     PAPEIS_EMPRESA,
     PessoaEndereco,
@@ -32,7 +38,7 @@ from app.domain.cadastro import (
     validar_nome,
     validar_papeis,
 )
-from app.modules.nucleo.models import CampoCustom, Empresa, Pessoa
+from app.modules.nucleo.models import CampoCustom, CampoPadraoConfig, Empresa, OpcaoLista, Pessoa, Produto
 from app.modules.nucleo.regras import DefCampo
 from app.modules.nucleo.regras import validar_campos_custom as _validar
 
@@ -91,6 +97,52 @@ def propagar_endereco_empresa(db: Session, empresa: Empresa) -> list[tuple[Pesso
     return out
 
 
+# ------------------------------------------------------------------------------------------------- campos padrões
+
+
+def campos_padrao(db: Session, objeto: str) -> list[cp.CampoEfetivo]:
+    """Catálogo do objeto com a configuração gravada (sem linha = padrão do catálogo)."""
+    configs = {c.campo: cp.Config(c.obrigatorio, c.visivel, c.ordem)
+               for c in db.scalars(select(CampoPadraoConfig).where(CampoPadraoConfig.objeto == objeto))}
+    return cp.efetivos(objeto, configs)
+
+
+def validar_campos_padrao(db: Session, objeto: str, valores: dict[str, Any], *, criando: bool) -> None:
+    """Exige os campos padrões obrigatórios (criar: todos; alterar: só os enviados). Levanta RegraViolada."""
+    cp.validar_obrigatorios(objeto, campos_padrao(db, objeto), valores, criando=criando)
+
+
+# ------------------------------------------------------------------------------------------------- listas
+
+
+def opcoes_da_lista(db: Session, tipo: str, *, so_ativas: bool = True) -> list[OpcaoLista]:
+    q = select(OpcaoLista).where(OpcaoLista.tipo == dom_listas.validar_tipo(tipo))
+    if so_ativas:
+        q = q.where(OpcaoLista.ativo.is_(True))
+    return list(db.scalars(q.order_by(OpcaoLista.ordem, OpcaoLista.id)))
+
+
+def garantir_listas_padrao(db: Session) -> int:
+    """Semeia as listas vazias com os padrões + valores já usados nos dados (idempotente). Só flush."""
+    from app.modules.comercial.models import Oportunidade
+
+    usados = {
+        "segmento": list(db.scalars(select(Empresa.segmento).where(Empresa.segmento.is_not(None)).distinct())),
+        "porte": [],
+        "motivo_perda": list(db.scalars(select(Oportunidade.motivo_perda)
+                                        .where(Oportunidade.motivo_perda.is_not(None)).distinct())),
+    }
+    n = 0
+    for tipo in dom_listas.TIPOS:
+        if db.scalar(select(OpcaoLista.id).where(OpcaoLista.tipo == tipo).limit(1)):
+            continue
+        for ordem, nome in enumerate(dom_listas.iniciais(tipo, usados[tipo]), 1):
+            db.add(OpcaoLista(tipo=tipo, nome=nome, ordem=ordem, ativo=True))
+            n += 1
+    db.flush()
+    return n
+
+
 # ------------------------------------------------------------------------------------------------- campos custom
 
 
@@ -112,6 +164,8 @@ def _modelo_do_objeto(objeto: str):
         return Empresa
     if objeto == "pessoa":
         return Pessoa
+    if objeto == "produto":
+        return Produto
     from app.modules.comercial.models import Oportunidade
 
     return Oportunidade

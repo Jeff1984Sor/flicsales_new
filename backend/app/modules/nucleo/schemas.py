@@ -13,7 +13,10 @@ TipoProduto = Literal["servico", "produto"]
 Natureza = Literal["receita", "despesa"]
 # "lista" = seleção única, "multipla" = seleção múltipla, "link" = hiperlink; "sim_nao" só para campos antigos
 TipoCampo = Literal["texto", "numero", "moeda", "data", "sim_nao", "lista", "multipla", "link"]
-ObjetoCampo = Literal["empresa", "pessoa", "oportunidade"]
+ObjetoCampo = Literal["empresa", "pessoa", "oportunidade", "produto"]
+TipoDesconto = Literal["percentual", "valor"]
+Frequencia = Literal["diaria", "semanal", "mensal", "semestral", "anual"]
+TipoLista = Literal["segmento", "porte", "motivo_perda"]
 
 
 class Entrada(BaseModel):
@@ -166,6 +169,25 @@ class Duplicidade(BaseModel):
 
 
 # ------------------------------------------------------------------------------------------------- pessoa
+class TelefoneItem(BaseModel):
+    """Um telefone da pessoa. Tipo: celular | whatsapp | fixo | comercial (padrão celular). Normalizado no domínio
+    (app.domain.contatos); exatamente um principal (nenhum marcado → o primeiro)."""
+
+    model_config = ConfigDict(extra="ignore")
+    numero: str | None = Field(default=None, max_length=40)
+    tipo: str | None = Field(default=None, max_length=15)
+    principal: bool = False
+
+
+class EmailItem(BaseModel):
+    """Um e-mail da pessoa. Tipo: comercial | pessoal | financeiro (padrão comercial). Sem repetição."""
+
+    model_config = ConfigDict(extra="ignore")
+    email: str | None = Field(default=None, max_length=200)
+    tipo: str | None = Field(default=None, max_length=15)
+    principal: bool = False
+
+
 class _PessoaCampos(_EnderecoCampos):
     empresa_id: int | None = None
     # ligada (padrão): o endereço é o da empresa e acompanha as mudanças dela. Editar o endereço sem mandar a marca
@@ -181,6 +203,10 @@ class _PessoaCampos(_EnderecoCampos):
     # LGPD: valores de app.domain.cadastro.BASES_LEGAIS / PERMISSOES_COMUNICACAO (fora da lista → 400)
     base_legal: str | None = Field(default=None, max_length=30)
     permissoes_comunicacao: list[str] | None = None
+    # vários contatos: com a lista, `email`/`telefone` são ignorados e passam a espelhar o principal; sem a lista,
+    # `email`/`telefone` trocam o principal (telas antigas continuam funcionando)
+    telefones: list[TelefoneItem] | None = None
+    emails: list[EmailItem] | None = None
 
 
 class PessoaCriar(_PessoaCampos):
@@ -208,6 +234,8 @@ class PessoaSaida(_EnderecoSaida, Saida):
     usa_endereco_da_empresa: bool = True
     base_legal: str | None = None
     permissoes_comunicacao: list[str] = []
+    telefones: list[dict[str, Any]] = []  # [{numero, tipo, principal}] — o principal primeiro
+    emails: list[dict[str, Any]] = []  # [{email, tipo, principal}] — o principal primeiro
     ativo: bool
 
 
@@ -218,6 +246,14 @@ class _ProdutoCampos(Entrada):
     preco_referencia: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=2)
     recorrente: bool | None = None
     descricao: str | None = None
+    # desconto padrão (os dois ou nenhum): percentual 0–100; valor ≥ 0 e ≤ preço de referência
+    desconto_tipo: TipoDesconto | None = None
+    desconto_valor: Decimal | None = Field(default=None, max_digits=15, decimal_places=2)
+    # recorrência (só com recorrente=true; recorrente=false limpa): a cada `intervalo` dias/semanas/meses/anos
+    frequencia: Frequencia | None = None
+    intervalo: int | None = None
+    dias_semana: list[str] | None = None  # seg ter qua qui sex sab dom (obrigatório na semanal)
+    campos_custom: dict[str, Any] | None = None
 
 
 class ProdutoCriar(_ProdutoCampos):
@@ -241,6 +277,13 @@ class ProdutoSaida(Saida):
     recorrente: bool
     descricao: str | None
     ativo: bool
+    desconto_tipo: str | None = None
+    desconto_valor: Decimal | None = None
+    frequencia: str | None = None
+    intervalo: int | None = None
+    dias_semana: list[str] = []
+    recorrencia_texto: str | None = None  # "Toda semana: seg, qua", "A cada 2 meses", "Semestral"…
+    campos_custom: dict[str, Any] = {}
 
 
 # ------------------------------------------------------------------------------------------------- fornecedor
@@ -362,6 +405,10 @@ class CampoCriar(Entrada):
     opcoes: list[str] | None = None
     obrigatorio: bool = False
     exigido_na_etapa_id: int | None = None
+    # exibir na etapa (só oportunidade): funil + etapa a partir da qual o campo aparece (null = sempre)
+    exibir_funil_id: int | None = None
+    exibir_etapa_id: int | None = None
+    visivel: bool = True  # preferência: aparece no cadastro (oculto continua guardando o valor)
     ordem: int = 0
 
 
@@ -372,6 +419,9 @@ class CampoAtualizar(Entrada):
     opcoes: list[str] | None = None
     obrigatorio: bool | None = None
     exigido_na_etapa_id: int | None = None
+    exibir_funil_id: int | None = None
+    exibir_etapa_id: int | None = None
+    visivel: bool | None = None
     ordem: int | None = None
 
 
@@ -387,6 +437,13 @@ class CampoSaida(Saida):
     etapa_nome: str | None = None
     funil_id: int | None = None  # funil da etapa que exige o campo
     funil_nome: str | None = None
+    exibir_funil_id: int | None = None
+    exibir_funil_nome: str | None = None
+    exibir_etapa_id: int | None = None
+    exibir_etapa_nome: str | None = None
+    exibir_etapa_ordem: int | None = None  # aparece quando a etapa da oportunidade tem ordem ≥ esta
+    visivel: bool = True
+    criado_em: datetime | None = None
     tipo_rotulo: str | None = None  # "Seleção única", "Seleção múltipla", "Hiperlink"…
     ordem: int
     arquivado: bool
@@ -418,6 +475,64 @@ class EtapaOpcao(BaseModel):
     nome: str
     funil_id: int
     funil_nome: str
+    ordem: int = 0
+
+
+class CampoSugeridoSaida(BaseModel):
+    """Modelo pronto de campo (app.domain.campos_sugeridos). `chave` = slug do campo que será criado."""
+
+    objeto: str
+    chave: str
+    nome: str
+    tipo: str
+    tipo_rotulo: str
+    descricao: str
+    opcoes: list[str] = []
+
+
+class CampoPadraoSaida(BaseModel):
+    """Campo fixo do sistema (app.domain.campos_padrao). `fixo` = sempre obrigatório e visível (sem lápis)."""
+
+    objeto: str
+    campo: str
+    nome: str
+    tipo: str
+    tipo_rotulo: str = "Campo padrão"
+    fixo: bool
+    obrigatorio: bool
+    visivel: bool
+    ordem: int
+
+
+class CampoPadraoAtualizar(Entrada):
+    obrigatorio: bool | None = None
+    visivel: bool | None = None
+    ordem: int | None = None
+
+
+# ------------------------------------------------------------------------------------------------- listas (governança)
+class OpcaoListaSaida(Saida):
+    id: int
+    tipo: str
+    nome: str
+    ordem: int
+    ativo: bool
+    criado_em: datetime | None = None
+
+
+class OpcaoListaCriar(Entrada):
+    nome: str = Field(max_length=120)
+    ordem: int | None = None  # sem ordem: vai para o fim
+
+
+class OpcaoListaAtualizar(Entrada):
+    nome: str | None = Field(default=None, max_length=120)
+    ordem: int | None = None
+    ativo: bool | None = None
+
+
+class ReordenarIn(Entrada):
+    ids: list[int]  # POST /listas/{tipo}/reordenar: todos os itens (ativos e inativos), na nova ordem
 
 
 # ------------------------------------------------------------------------------------------------- consultas públicas

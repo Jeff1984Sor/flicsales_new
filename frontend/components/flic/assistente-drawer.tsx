@@ -68,13 +68,16 @@ export function AssistenteDrawer() {
 
   const moduloId = moduloDaRota(pathname);
   const modulo = moduloPorId(moduloId);
+  // o módulo Assistente não tem "este módulo": as perguntas valem para toda a FlicSales
+  const moduloApi = moduloId === "assistente" ? null : moduloId;
+  const escopoApi = (esc: EscopoIA) => (!moduloApi && esc === "Este módulo" ? "tudo" : ESCOPO_API[esc]);
   const tela = itemDaRota(pathname)?.label ?? "Início";
 
   // mesma chave da tela Assistente: reaproveita o cache e não refaz a leitura a cada abertura
   const leitura = useQuery({
-    queryKey: ["orquestracao", "leitura", moduloId],
-    queryFn: () => api.get<RespostaIA>("/orquestracao/leitura", { modulo: moduloId }),
-    enabled: aberto && inicial,
+    queryKey: ["orquestracao", "leitura", moduloApi],
+    queryFn: () => api.get<RespostaIA>("/orquestracao/leitura", { modulo: moduloApi ?? undefined }),
+    enabled: aberto && inicial && !!moduloApi,
     staleTime: 5 * 60_000,
     meta: { silencioso: true },
   });
@@ -93,8 +96,8 @@ export function AssistenteDrawer() {
   const enviarTexto = (texto: string, esc: EscopoIA, reg: RegistroContexto | null, conversa: number | null) => {
     mutate({
       pergunta: texto,
-      escopo: ESCOPO_API[esc],
-      modulo: moduloId,
+      escopo: escopoApi(esc),
+      modulo: moduloApi,
       tela,
       registro: esc === "Este registro" && reg ? { tipo: reg.tipo, id: Number(reg.id) } : null,
       conversa_id: conversa,
@@ -104,7 +107,9 @@ export function AssistenteDrawer() {
   useEffect(() => {
     const h = (e: Event) => {
       const d = (e as CustomEvent<DetalheIAComPergunta>).detail;
-      const esc = d?.escopo ?? "Este módulo";
+      const pedido = d?.escopo ?? "Este módulo";
+      // no módulo Assistente não há "este módulo": a conversa vale para toda a FlicSales
+      const esc = pedido === "Este módulo" && moduloDaRota(window.location.pathname) === "assistente" ? "Toda a FlicSales" : pedido;
       setEscopo(esc);
       setRegistro(d?.registro ?? null);
       setUltima(null);
@@ -125,13 +130,14 @@ export function AssistenteDrawer() {
     pendente.current = null;
     mutate({
       pergunta: p.texto,
-      escopo: ESCOPO_API[p.escopo],
-      modulo: moduloId,
+      escopo: escopoApi(p.escopo),
+      modulo: moduloApi,
       tela,
       registro: p.escopo === "Este registro" && p.registro ? { tipo: p.registro.tipo, id: Number(p.registro.id) } : null,
       conversa_id: null,
     });
-  }, [aberto, mutate, moduloId, tela]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- escopoApi deriva de moduloApi
+  }, [aberto, mutate, moduloApi, tela]);
 
   const enviar = (e: React.FormEvent) => {
     e.preventDefault();
@@ -161,7 +167,7 @@ export function AssistenteDrawer() {
             }}
           >
             {ESCOPOS.map((s) => (
-              <option key={s} value={s} disabled={s === "Este registro" && !registro}>
+              <option key={s} value={s} disabled={(s === "Este registro" && !registro) || (s === "Este módulo" && !moduloApi)}>
                 {s}
               </option>
             ))}
@@ -176,7 +182,11 @@ export function AssistenteDrawer() {
           <>
             <div className="mt-[15px] rounded-[7px] bg-tint p-3 text-sm">{perguntaPadrao(escopo)}</div>
             <div className="my-5 rounded-[9px] bg-subtle p-[18px] text-[13px]" aria-live="polite">
-              {leitura.isLoading ? (
+              {!moduloApi ? (
+                <p className="text-muted">
+                  Pergunte sobre Núcleo, Comercial e Financeiro. As respostas trazem evidência, fonte e limite, dentro das permissões do seu perfil.
+                </p>
+              ) : leitura.isLoading ? (
                 <p className="flex items-center gap-2 text-muted">
                   <Loader2 className="size-4 animate-spin" /> Consultando as fontes permitidas ao seu perfil…
                 </p>

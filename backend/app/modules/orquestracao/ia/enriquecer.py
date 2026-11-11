@@ -41,12 +41,12 @@ ROTULO_DO_OBJETO = {"empresa": "Empresa", "fornecedor": "Fornecedor", "pessoa": 
                     "categoria": "Categoria", "centro_custo": "Centro de custo", "conta": "Conta financeira"}
 COM_ENDERECO = ("empresa", "fornecedor", "pessoa")
 
-LIMITE_IA_DESLIGADA = ("A IA está desligada: ative em Configurações › Inteligência Artificial para pedidos livres.")
+LIMITE_IA_DESLIGADA = ("A IA está desligada: ative em Assistente › Configurações de IA para pedidos livres.")
 LIMITE_NADA_GRAVADO = "Nada foi gravado: revise, aplique no formulário e salve."
 INSTRUCAO_PADRAO = "Complete e padronize os campos que puder, sem inventar fatos."
 
 # campos da consulta de CNPJ → campos do cadastro (nome = razão social só entra se o nome estiver vazio)
-_CNPJ_CAMPOS = ("nome_fantasia", "segmento", "porte", "telefone", "email_financeiro", "cep", "logradouro", "numero",
+_CNPJ_CAMPOS = ("nome_fantasia", "segmento", "porte", "telefone", "cep", "logradouro", "numero",
                 "complemento", "bairro", "cidade", "uf")
 _CEP_CAMPOS = ("logradouro", "bairro", "cidade", "uf")
 

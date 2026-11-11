@@ -19,7 +19,7 @@ from app.domain.cadastro import chave_de_nome
 # "sim_nao" continua aceito (campos antigos), mas a tela não o oferece mais.
 TIPOS_CAMPO = ("texto", "numero", "moeda", "data", "sim_nao", "lista", "multipla", "link")
 TIPOS_COM_OPCOES = ("lista", "multipla")
-OBJETOS_CAMPO = ("empresa", "pessoa", "oportunidade")
+OBJETOS_CAMPO = ("empresa", "pessoa", "oportunidade", "produto")
 ROTULO_TIPO = {"texto": "Texto", "numero": "Número", "moeda": "Moeda", "data": "Data", "sim_nao": "Sim/não",
                "lista": "Seleção única", "multipla": "Seleção múltipla", "link": "Hiperlink"}
 SEPARADOR_MULTIPLA = ";"  # planilha e texto: "Opção A; Opção B"
@@ -42,7 +42,7 @@ def validar_definicao_campo(*, nome: str | None, tipo: str, objeto: str, opcoes:
         raise RegraViolada("Tipo de campo inválido. Use texto, data, número, moeda, seleção única, seleção múltipla "
                            "ou hiperlink.")
     if objeto not in OBJETOS_CAMPO:
-        raise RegraViolada("Objeto inválido. Use empresa, pessoa ou oportunidade.")
+        raise RegraViolada("Objeto inválido. Use empresa, pessoa, oportunidade ou produto.")
     limpas: list[str] = []
     for o in opcoes or []:
         o = (o or "").strip()

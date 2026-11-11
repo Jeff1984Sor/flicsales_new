@@ -17,6 +17,8 @@
  *  - `alterados(inicial, atual)`     só o que mudou (o backend grava só o enviado)
  *  - `CHIPS_SITUACAO`                chips Ativos · Inativos · Todos para a BarraFiltros
  *  - `useInvalidarCadastros()`       invalida as listas do Núcleo após salvar
+ *  - `<AcoesLista>`                  linha de ações de uma lista embutida (sem PageHeader): Importar à esquerda,
+ *                                    ação primária por último
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -157,6 +159,11 @@ export function SeletorPessoa({ empresaId, ...p }: SeletorBase & { empresaId?: n
       opcoes={(data?.itens ?? []).map((x) => ({ id: x.id, rotulo: x.empresa_nome && !empresaId ? `${x.nome} · ${x.empresa_nome}` : x.nome }))}
     />
   );
+}
+
+/** Ações de uma lista embutida em outra tela: mesma ordem do cabeçalho (Importar → ação primária). */
+export function AcoesLista({ children }: { children: React.ReactNode }) {
+  return <div className="mb-3 flex flex-wrap items-center justify-end gap-2.5">{children}</div>;
 }
 
 /** Rodapé padrão dos drawers de formulário: "Salvar …" (submit do form `formId`) + "Cancelar". */
